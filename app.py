@@ -57,24 +57,42 @@ def whatsapp():
         return str(resp)
 
     # ===== PASO 2: SELECCIONAR PRODUCTO =====
-    if order["step"] == "seleccionar":
-        for p in order["resultados"]:
-            if p["nombre"].lower() == body:
-                order["cart"].append(p)
-                order["total"] += p["precio"]
-                order["step"] = "mas"
+if order["step"] == "seleccionar":
 
-                resp.message(
-                    f"✅ *{p['nombre']}* agregado.\n"
-                    f"💰 Total actual: ${order['total']}\n\n"
-                    "¿Necesitas algo más?\n"
-                    "✍️ Escribe qué necesitas (ej: leche)\n"
-                    "✔️ O escribe *ok* para continuar"
-                )
-                return str(resp)
+    # intento de selección exacta
+    for p in order["resultados"]:
+        if p["nombre"].lower() == body:
+            order["cart"].append(p)
+            order["total"] += p["precio"]
+            order["step"] = "mas"
 
-        resp.message("❌ No reconocí ese producto. Escríbelo exactamente como aparece.")
+            resp.message(
+                f"✅ *{p['nombre']}* agregado.\n"
+                f"💰 Total actual: ${order['total']}\n\n"
+                "¿Necesitas algo más?\n"
+                "✍️ Escribe qué necesitas (ej: leche)\n"
+                "✔️ O escribe *ok* para continuar"
+            )
+            return str(resp)
+
+    # si NO coincide, se interpreta como nueva búsqueda
+    resultados = buscar(body, INVENTARIO)
+
+    if not resultados:
+        resp.message(
+            "❌ No reconocí ese producto.\n"
+            "✍️ Escríbelo exactamente como aparece o busca otro producto."
+        )
         return str(resp)
+
+    order["resultados"] = resultados
+    order["step"] = "seleccionar"
+
+    resp.message(
+        lista_productos(resultados) +
+        "\n✍️ Escribe el *nombre exacto* del producto."
+    )
+    return str(resp)
 
     # ===== PASO 3: ¿ALGO MÁS? =====
     if order["step"] == "mas":
