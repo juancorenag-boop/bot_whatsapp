@@ -5,7 +5,7 @@ from inventory import INVENTARIO
 from search import buscar
 from responses import saludo, lista_productos
 
-app = Flask(_name_)
+app = Flask(__name__)
 
 # memoria simple (en producción usarías Redis o base de datos)
 orders = {}
@@ -235,5 +235,5 @@ def home():
     return "Bot de tienda por WhatsApp funcionando 🚀"
 
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
