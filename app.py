@@ -14,7 +14,16 @@ orders = {}
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
     from_number = request.form.get("From")
-    body = request.form.get("Body", "").strip().lower()
+    body = request.form.get("Body") or ""
+    body = body.strip().lower()
+
+    print("📩 Mensaje recibido")
+    print("From:", from_number)
+    print("Body:", body)
+
+    resp = MessagingResponse()
+    resp.message(f"Recibí tu mensaje: {body}")
+    return str(resp)
 
     resp = MessagingResponse()
 
