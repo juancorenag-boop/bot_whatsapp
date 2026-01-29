@@ -8,13 +8,17 @@ from responses import saludo, lista_productos
 app = Flask(__name__)
 
 # memoria simple
-seleccion_pendiente = {}
 ultimos_resultados = {}
+seleccion_pendiente = {}
+
+def get_user_id(req):
+    # normaliza el identificador de WhatsApp
+    return req.form.get("From", "").replace("whatsapp:", "")
 
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
     body = request.form.get("Body", "").strip().lower()
-    user = request.form.get("From")
+    user = get_user_id(request)
 
     resp = MessagingResponse()
 
@@ -30,7 +34,11 @@ def whatsapp():
         return str(resp)
 
     # ---- SELECCIÓN POR NÚMERO ----
-    if body.isdigit() and user in ultimos_resultados:
+    if body.isdigit():
+        if user not in ultimos_resultados:
+            resp.message("⚠️ Primero busca un producto.")
+            return str(resp)
+
         idx = int(body) - 1
         productos = ultimos_resultados[user]
 
@@ -41,7 +49,7 @@ def whatsapp():
                 f"¿Quieres agregar *{p['nombre']}* por *${p['precio']}*? (sí/no)"
             )
         else:
-            resp.message("❌ Opción inválida.")
+            resp.message("❌ Número inválido.")
 
         return str(resp)
 
@@ -52,12 +60,15 @@ def whatsapp():
 
     # ---- BÚSQUEDA ----
     productos = buscar(body, INVENTARIO)
-    ultimos_resultados[user] = productos
 
-    resp.message(lista_productos(productos))
+    if productos:
+        ultimos_resultados[user] = productos
+        resp.message(lista_productos(productos))
+    else:
+        resp.message("❌ No encontré productos con ese nombre.")
+
     return str(resp)
 
 @app.route("/")
 def home():
     return "Bot de tienda funcionando 🚀"
-
