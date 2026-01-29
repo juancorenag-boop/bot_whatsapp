@@ -1,22 +1,26 @@
-if order["step"] == "seleccionar":
-    body_norm = normalizar(body)
+from flask import Flask, request
+from twilio.twiml.messaging_response import MessagingResponse
 
-    for p in order["resultados"]:
-        nombre_norm = normalizar(p["nombre"])
+from inventory import INVENTARIO
+from search import buscar
+from responses import saludo, lista_productos
 
-        if body_norm == nombre_norm:
-            order["cart"].append(p)
-            order["total"] += p["precio"]
-            order["step"] = "mas"
+app = Flask(__name__)  # ⚠️ ESTO DEBE IR ANTES
 
-            resp.message(
-                f"✅ *{p['nombre']}* agregado.\n"
-                f"💰 Total actual: ${order['total']}\n\n"
-                "¿Necesitas algo más?\n"
-                "✍️ Escribe qué necesitas (ej: arroz)\n"
-                "✔️ O escribe *ok* para continuar"
-            )
-            return str(resp)
+@app.route("/whatsapp", methods=["POST"])
+def whatsapp():
+    body = request.form.get("Body", "").strip()
 
-    resp.message("❌ Escríbelo exactamente como aparece en la lista.")
+    resp = MessagingResponse()
+
+    if body.lower() in ["hola", "menu", "inicio"]:
+        resp.message(saludo())
+        return str(resp)
+
+    productos = buscar(body, INVENTARIO)
+    resp.message(lista_productos(productos))
     return str(resp)
+
+@app.route("/")
+def home():
+    return "Bot de tienda funcionando 🚀"
