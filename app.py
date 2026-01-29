@@ -7,233 +7,151 @@ from responses import saludo, lista_productos
 
 app = Flask(__name__)
 
-# memoria simple (en producción usarías Redis o base de datos)
+# ================= MEMORIA SIMPLE =================
 orders = {}
 
+# ================= WEBHOOK =================
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
-    body = request.form.get("Body", "").strip().lower()
     from_number = request.form.get("From")
+    body = request.form.get("Body", "").strip().lower()
 
     resp = MessagingResponse()
 
-    # ===== INICIO / REINICIO =====
-    if body in ["hola", "menu", "inicio", "empezar"]:
-        orders[from_number] = {
-            "step": "buscar",
-            "cart": [],           # ahora cada item tendrá: {"nombre", "precio", "cantidad"}
-            "total": 0,
-            "resultados": []
-        }
-        resp.message(saludo())
-        return str(resp)
-
-    # Inicializar sesión si no existe
+    # Inicializar pedido si no existe
     if from_number not in orders:
         orders[from_number] = {
-            "step": "buscar",
+            "step": "inicio",
             "cart": [],
             "total": 0,
+            "producto_actual": None,
             "resultados": []
         }
 
     order = orders[from_number]
 
-    # ===== MANEJO DE ELIMINAR =====
-    if body.startswith(("eliminar ", "quitar ", "borrar ", "sacar ")):
-        comando = body.split(" ", 1)[0]
-        resto = body.split(" ", 1)[1] if len(body.split()) > 1 else ""
-
-        if resto in ["todo", "todos", "carrito", "todo el carrito"]:
-            order["cart"] = []
-            order["total"] = 0
-            resp.message("🗑️ Carrito vaciado completamente.\n¿Qué necesitas ahora?")
-            return str(resp)
-
-        if resto == "último" or resto == "ultimo":
-            if order["cart"]:
-                ultimo = order["cart"].pop()
-                order["total"] -= ultimo["precio"] * ultimo["cantidad"]
-                resp.message(f"🗑️ Eliminado: {ultimo['cantidad']} × {ultimo['nombre']}\nTotal ahora: ${order['total']}")
-            else:
-                resp.message("El carrito está vacío.")
-            return str(resp)
-
-        # Buscar coincidencia parcial o exacta
-        encontrado = False
-        for i, item in enumerate(order["cart"]):
-            if resto in item["nombre"].lower() or item["nombre"].lower() in resto:
-                cantidad_eliminar = item["cantidad"]
-                order["total"] -= item["precio"] * cantidad_eliminar
-                del order["cart"][i]
-                encontrado = True
-                resp.message(f"🗑️ Eliminado: {cantidad_eliminar} × {item['nombre']}\nTotal ahora: ${order['total']}")
-                break
-
-        if not encontrado:
-            resp.message(f"No encontré '{resto}' en tu carrito.\nEscribe 'ver carrito' para ver lo que tienes.")
+    # ===== SALUDO / INICIO =====
+    if body in ["hola", "menu", "inicio"]:
+        order["step"] = "busqueda"
+        resp.message(saludo())
         return str(resp)
 
-    # ===== VER CARRITO =====
-    if body in ["ver carrito", "carrito", "ver pedido", "qué tengo", "lista"]:
+    # ===== FINALIZAR PEDIDO =====
+    if body in ["terminar", "finalizar", "checkout"]:
         if not order["cart"]:
-            resp.message("🛒 Tu carrito está vacío.\nEscribe algo para buscar productos.")
-        else:
-            mensaje = "🛒 Tu carrito actual:\n\n"
-            for item in order["cart"]:
-                sub = item["cantidad"] * item["precio"]
-                mensaje += f"• {item['cantidad']} × {item['nombre']} — ${sub}\n"
-            mensaje += f"\n💰 Total: ${order['total']}\n\n"
-            mensaje += "• Escribe 'ok' para confirmar\n• Escribe 'eliminar [producto]' para quitar algo"
-            resp.message(mensaje)
-        return str(resp)
-
-    # ===== PASO 1: BUSCAR PRODUCTOS =====
-    if order["step"] == "buscar":
-        resultados = buscar(body, INVENTARIO)
-
-        if not resultados:
-            resp.message("❌ No encontré productos con eso. Intenta otra palabra o escribe 'hola' para reiniciar.")
+            resp.message("❌ Tu carrito está vacío. Agrega productos antes de finalizar.")
             return str(resp)
 
-        order["resultados"] = resultados
-        order["step"] = "seleccionar"
+        resumen = "🧾 *Resumen de tu pedido:*\n\n"
+        for p in order["cart"]:
+            resumen += f"- {p['nombre']} x{p['cantidad']} = ${p['subtotal']}\n"
 
-        resp.message(
-            lista_productos(resultados) +
-            "\n\n✍️ Escribe el nombre (o cantidad + nombre)\nEjemplos:\n• leche\n• 3 huevos\n• pan 2"
-        )
+        resumen += f"\n💰 *Total:* ${order['total']}"
+        if "direccion" in order:
+            resumen += f"\n📍 *Dirección:* {order['direccion']}"
+        resumen += "\n\n✅ *Pedido confirmado*. ¡Gracias por tu compra! 🎉"
+
+        resp.message(resumen)
+        orders.pop(from_number)
         return str(resp)
 
-    # ===== PASO 2: SELECCIONAR / AGREGAR =====
-    if order["step"] == "seleccionar":
-        cantidad = 1
-        texto = body.strip()
+    # ===== BÚSQUEDA DE PRODUCTOS =====
+    if order["step"] in ["inicio", "busqueda"]:
+        productos = buscar(body, INVENTARIO)
+        if not productos:
+            resp.message("❌ No encontré ese producto. Intenta con otro nombre.")
+            return str(resp)
 
-        # Extraer posible cantidad al inicio o al final
-        partes = texto.split()
-        if partes and partes[0].isdigit():
-            cantidad = int(partes[0])
-            texto = " ".join(partes[1:]).strip()
-        elif partes and partes[-1].isdigit():
-            cantidad = int(partes[-1])
-            texto = " ".join(partes[:-1]).strip()
+        order["resultados"] = productos
+        order["step"] = "confirmar_producto"
+        resp.message(lista_productos(productos) + "\n\n✍️ Escribe el *nombre exacto* del producto que deseas.")
+        return str(resp)
 
-        producto_encontrado = None
+    # ===== CONFIRMAR PRODUCTO =====
+    if order["step"] == "confirmar_producto":
         for p in order["resultados"]:
-            if p["nombre"].lower() == texto.lower():
-                producto_encontrado = p
-                break
-
-        if producto_encontrado:
-            # Agregar o sumar si ya existe
-            encontrado_en_carrito = False
-            for item in order["cart"]:
-                if item["nombre"].lower() == producto_encontrado["nombre"].lower():
-                    item["cantidad"] += cantidad
-                    encontrado_en_carrito = True
-                    break
-
-            if not encontrado_en_carrito:
-                order["cart"].append({
-                    "nombre": producto_encontrado["nombre"],
-                    "precio": producto_encontrado["precio"],
-                    "cantidad": cantidad
-                })
-
-            order["total"] += producto_encontrado["precio"] * cantidad
-            order["step"] = "mas"
-
-            resp.message(
-                f"✅ Agregado: {cantidad} × {producto_encontrado['nombre']}\n"
-                f"💰 Total actual: ${order['total']}\n\n"
-                "¿Algo más?\n"
-                "Ej: 2 arroz, huevos, ok, ver carrito, eliminar leche"
-            )
-            return str(resp)
-
-        # Si no encontró → nueva búsqueda
-        resultados = buscar(body, INVENTARIO)
-        if not resultados:
-            resp.message("❌ No reconocí ese producto.\nIntenta con el nombre exacto o escribe otra cosa.")
-            return str(resp)
-
-        order["resultados"] = resultados
-        order["step"] = "seleccionar"
-        resp.message(
-            lista_productos(resultados) +
-            "\n✍️ Escribe cantidad + nombre (ej: 3 leche) o solo el nombre."
-        )
-        return str(resp)
-
-    # ===== PASO 3: ¿ALGO MÁS? =====
-    if order["step"] == "mas":
-        if body in ["ok", "finalizar", "terminar", "listo"]:
-            if not order["cart"]:
-                resp.message("Tu carrito está vacío. Escribe algo para agregar productos.")
+            if body == p["nombre"].lower():
+                order["producto_actual"] = p
+                order["step"] = "cantidad"
+                resp.message(f"🛒 ¿Cuántas unidades de *{p['nombre']}* deseas?")
                 return str(resp)
 
-            resumen = "🧾 Resumen de tu pedido:\n\n"
-            for item in order["cart"]:
-                sub = item["cantidad"] * item["precio"]
-                resumen += f"• {item['cantidad']} × {item['nombre']} — ${sub}\n"
-            resumen += f"\n💰 Total: ${order['total']}\n\n"
-            resumen += "¿Confirmas el pedido? (sí / no)"
-            order["step"] = "confirmar"
-            resp.message(resumen)
+        resp.message("❌ No reconocí ese producto. Escríbelo exactamente como aparece en la lista.")
+        return str(resp)
+
+    # ===== CANTIDAD =====
+    if order["step"] == "cantidad":
+        if not body.isdigit() or int(body) <= 0:
+            resp.message("❗ Escribe una cantidad válida (número).")
             return str(resp)
 
-        # Si escribe otra cosa → intenta buscar/agregar
-        resultados = buscar(body, INVENTARIO)
-        if not resultados:
-            resp.message("Escribe 'ok' para finalizar, 'ver carrito', 'eliminar [producto]' o busca otro producto.")
+        cantidad = int(body)
+        producto = order["producto_actual"]
+
+        if cantidad > producto["cantidad"]:
+            resp.message(f"⚠️ Solo hay {producto['cantidad']} unidades disponibles.")
             return str(resp)
 
-        order["resultados"] = resultados
-        order["step"] = "seleccionar"
+        subtotal = cantidad * producto["precio"]
+
+        # Verificar si el producto ya está en el carrito
+        for item in order["cart"]:
+            if item["nombre"] == producto["nombre"]:
+                item["cantidad"] += cantidad
+                item["subtotal"] += subtotal
+                break
+        else:
+            order["cart"].append({
+                "nombre": producto["nombre"],
+                "cantidad": cantidad,
+                "precio": producto["precio"],
+                "subtotal": subtotal
+            })
+
+        order["total"] += subtotal
+        order["step"] = "mas"
         resp.message(
-            lista_productos(resultados) +
-            "\n✍️ Escribe cantidad + nombre o solo el nombre."
+            f"✅ *{producto['nombre']}* agregado ({cantidad} uds)\n"
+            f"💵 Subtotal: ${subtotal}\n\n"
+            "¿Deseas agregar otro producto? Escribe *sí* para continuar o *terminar* para finalizar tu pedido."
         )
         return str(resp)
 
-    # ===== PASO 4: CONFIRMAR =====
-    if order["step"] == "confirmar":
-        if body in ["si", "sí", "confirmo", "confirmar", "acepto"]:
-            order["step"] = "direccion"
-            resp.message("📍 Perfecto. Escríbeme la dirección de entrega (puedes escribir lo que quieras):")
+    # ===== AGREGAR MÁS PRODUCTOS =====
+    if order["step"] == "mas":
+        if body in ["si", "sí"]:
+            order["step"] = "busqueda"
+            resp.message("🛍️ Perfecto, escribe el producto que deseas buscar.")
             return str(resp)
 
-        resp.message("❌ Pedido cancelado.\nEscribe hola para empezar de nuevo.")
-        orders.pop(from_number, None)
+        if body in ["no", "terminar", "finalizar"]:
+            order["step"] = "direccion"
+            resp.message("📍 Por favor escribe la *dirección de entrega*:")  
+            return str(resp)
+
+        resp.message("❓ Responde *sí* para agregar más productos o *terminar* para finalizar tu pedido.")
         return str(resp)
 
-    # ===== PASO 5: DIRECCIÓN =====
+    # ===== DIRECCIÓN =====
     if order["step"] == "direccion":
-        direccion = body.strip() or "No especificada"
+        order["direccion"] = body
+        resumen = "🧾 *Resumen de tu pedido:*\n\n"
+        for p in order["cart"]:
+            resumen += f"- {p['nombre']} x{p['cantidad']} = ${p['subtotal']}\n"
+        resumen += f"\n💰 *Total:* ${order['total']}"
+        resumen += f"\n📍 *Dirección:* {order['direccion']}"
+        resumen += "\n\n✅ *Pedido confirmado*. ¡Gracias por tu compra! 🎉"
 
-        mensaje_final = (
-            "🎉 ¡Pedido confirmado!\n\n"
-            f"📍 Dirección: {direccion}\n"
-            f"💰 Total: ${order['total']}\n\n"
-            "En breve nos pondremos en contacto. ¡Gracias por comprar con nosotros!"
-        )
-
-        # Aquí podrías guardar en base de datos, enviar notificación al negocio, etc.
-
-        orders.pop(from_number, None)
-        resp.message(mensaje_final)
+        resp.message(resumen)
+        orders.pop(from_number)
         return str(resp)
 
-    # Fallback
-    resp.message("No entendí muy bien 😅\nEscribe hola para ver el menú o ver carrito para revisar tu pedido.")
+    # ===== CASO POR DEFECTO =====
+    resp.message("❓ No entendí tu mensaje. Escribe *hola* para comenzar o *terminar* para finalizar tu pedido.")
     return str(resp)
 
 
+# ================= HOME =================
 @app.route("/")
 def home():
-    return "Bot de tienda por WhatsApp funcionando 🚀"
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000, debug=False)
+    return "Bot de tienda funcionando 🚀"
