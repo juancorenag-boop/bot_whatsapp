@@ -7,129 +7,128 @@ from responses import saludo, lista_productos
 
 app = Flask(__name__)
 
-# ================= MEMORIA SIMPLE =================
+# memoria simple
 orders = {}
 
-# ================= WEBHOOK =================
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
-    from_number = request.form.get("From")
     body = request.form.get("Body", "").strip().lower()
+    from_number = request.form.get("From")
 
     resp = MessagingResponse()
 
-    # Inicializar pedido
-    if from_number not in orders:
+    # ===== INICIO =====
+    if body in ["hola", "menu", "inicio"]:
         orders[from_number] = {
-            "step": "inicio",
+            "step": "buscar",
             "cart": [],
             "total": 0,
-            "producto_actual": None
+            "resultados": []
+        }
+        resp.message(saludo())
+        return str(resp)
+
+    # inicializar sesión
+    if from_number not in orders:
+        orders[from_number] = {
+            "step": "buscar",
+            "cart": [],
+            "total": 0,
+            "resultados": []
         }
 
     order = orders[from_number]
 
-    # ===== PASO 1: SALUDO =====
-    if body in ["hola", "menu", "inicio"]:
-        order["step"] = "busqueda"
-        resp.message(saludo())
-        return str(resp)
+    # ===== PASO 1: BUSCAR PRODUCTOS =====
+    if order["step"] == "buscar":
+        resultados = buscar(body, INVENTARIO)
 
-    # ===== PASO 2: BÚSQUEDA DE PRODUCTOS =====
-    if order["step"] == "busqueda":
-        productos = buscar(body, INVENTARIO)
-
-        if not productos:
-            resp.message("❌ No encontré ese producto. Intenta escribir otro nombre.")
+        if not resultados:
+            resp.message("❌ No encontré productos con eso. Intenta otra palabra.")
             return str(resp)
 
-        # Guardamos resultados temporales
-        order["resultados"] = productos
-        order["step"] = "confirmar_producto"
+        order["resultados"] = resultados
+        order["step"] = "seleccionar"
 
-        resp.message(lista_productos(productos) + "\n\n✍️ Escribe el *nombre exacto* del producto que deseas.")
+        resp.message(lista_productos(resultados))
+        resp.message("✍️ Escribe el nombre exacto del producto que deseas.")
         return str(resp)
 
-    # ===== PASO 3: CONFIRMAR PRODUCTO =====
-    if order["step"] == "confirmar_producto":
+    # ===== PASO 2: SELECCIONAR PRODUCTO =====
+    if order["step"] == "seleccionar":
         for p in order["resultados"]:
             if body in p["nombre"].lower():
-                order["producto_actual"] = p
-                order["step"] = "cantidad"
-                resp.message(f"🛒 ¿Cuántas unidades de *{p['nombre']}* deseas?")
+                order["cart"].append(p)
+                order["total"] += p["precio"]
+                order["step"] = "mas"
+
+                resp.message(
+                    f"✅ *{p['nombre']}* agregado.\n"
+                    f"💰 Total actual: ${order['total']}\n\n"
+                    "¿Necesitas algo más?\n"
+                    "✍️ Escribe qué necesitas (ej: leche)\n"
+                    "✔️ O escribe *ok* para continuar"
+                )
                 return str(resp)
 
-        resp.message("❌ No reconocí ese producto. Escríbelo exactamente como aparece.")
+        resp.message("❌ No reconocí ese producto. Escríbelo como aparece.")
         return str(resp)
 
-    # ===== PASO 4: CANTIDAD =====
-    if order["step"] == "cantidad":
-        if not body.isdigit() or int(body) <= 0:
-            resp.message("❗ Escribe una cantidad válida (número).")
+    # ===== PASO 3: ¿ALGO MÁS? =====
+    if order["step"] == "mas":
+        if body == "ok":
+            resumen = "🧾 *Resumen de tu pedido:*\n\n"
+            for p in order["cart"]:
+                resumen += f"- {p['nombre']} ${p['precio']}\n"
+            resumen += f"\n💰 Total: ${order['total']}\n\n"
+            resumen += "¿Confirmas el pedido? (sí / no)"
+
+            order["step"] = "confirmar"
+            resp.message(resumen)
             return str(resp)
 
-        cantidad = int(body)
-        producto = order["producto_actual"]
+        # si escribe otra cosa, se interpreta como nueva búsqueda
+        order["step"] = "buscar"
+        resultados = buscar(body, INVENTARIO)
 
-        if cantidad > producto["cantidad"]:
-            resp.message(f"⚠️ Solo hay {producto['cantidad']} unidades disponibles.")
+        if not resultados:
+            resp.message("❌ No encontré productos con eso.")
             return str(resp)
 
-        subtotal = cantidad * producto["precio"]
+        order["resultados"] = resultados
+        order["step"] = "seleccionar"
+        resp.message(lista_productos(resultados))
+        resp.message("✍️ Escribe el nombre del producto.")
+        return str(resp)
 
-        order["cart"].append({
-            "nombre": producto["nombre"],
-            "cantidad": cantidad,
-            "precio": producto["precio"],
-            "subtotal": subtotal
-        })
+    # ===== PASO 4: CONFIRMAR =====
+    if order["step"] == "confirmar":
+        if body in ["si", "sí", "confirmo"]:
+            order["step"] = "direccion"
+            resp.message("📍 Perfecto. Escríbeme la dirección de entrega:")
+            return str(resp)
 
-        order["total"] += subtotal
-        order["step"] = "mas"
+        resp.message("❌ Pedido cancelado. Escribe *hola* para empezar de nuevo.")
+        orders.pop(from_number)
+        return str(resp)
+
+    # ===== PASO 5: DIRECCIÓN =====
+    if order["step"] == "direccion":
+        direccion = body
 
         resp.message(
-            f"✅ *{producto['nombre']}* agregado ({cantidad} uds)\n"
-            f"💵 Subtotal: ${subtotal}\n\n"
-            "¿Deseas algo más?\n👉 Escribe *sí* o *no*"
+            "🎉 *Pedido confirmado*\n\n"
+            f"📍 Dirección: {direccion}\n"
+            f"💰 Total: ${order['total']}\n\n"
+            "¡Gracias por tu compra!"
         )
-        return str(resp)
 
-    # ===== PASO 5: ¿ALGO MÁS? =====
-    if order["step"] == "mas":
-        if body in ["si", "sí"]:
-            order["step"] = "busqueda"
-            resp.message("🛍️ Perfecto, escribe el producto que deseas buscar.")
-            return str(resp)
-
-        if body == "no":
-            order["step"] = "direccion"
-            resp.message("📍 Por favor escribe la *dirección de entrega*:")
-            return str(resp)
-
-        resp.message("❓ Responde *sí* o *no*")
-        return str(resp)
-
-    # ===== PASO 6: DIRECCIÓN Y CONFIRMACIÓN =====
-    if order["step"] == "direccion":
-        order["direccion"] = body
-
-        resumen = "🧾 *Resumen de tu pedido:*\n\n"
-        for p in order["cart"]:
-            resumen += f"- {p['nombre']} x{p['cantidad']} = ${p['subtotal']}\n"
-
-        resumen += f"\n💰 *Total:* ${order['total']}"
-        resumen += f"\n📍 *Dirección:* {order['direccion']}"
-        resumen += "\n\n✅ *Pedido confirmado*. ¡Gracias por tu compra! 🎉"
-
-        resp.message(resumen)
-
-        # Limpiar pedido
         orders.pop(from_number)
         return str(resp)
 
     return str(resp)
 
-# ================= HOME =================
 @app.route("/")
 def home():
     return "Bot de tienda funcionando 🚀"
+
