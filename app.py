@@ -5,15 +5,16 @@ from inventory import INVENTARIO
 from search import buscar
 from responses import saludo, lista_productos
 
-app = Flask(__name__)  # ⚠️ ESTO DEBE IR ANTES
+app = Flask(__name__)
 
-# memoria simple de selección pendiente
+# memoria simple
 seleccion_pendiente = {}
+ultimos_resultados = {}
 
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
     body = request.form.get("Body", "").strip().lower()
-    user = request.form.get("From")  # identificador del usuario
+    user = request.form.get("From")
 
     resp = MessagingResponse()
 
@@ -28,27 +29,35 @@ def whatsapp():
 
         return str(resp)
 
+    # ---- SELECCIÓN POR NÚMERO ----
+    if body.isdigit() and user in ultimos_resultados:
+        idx = int(body) - 1
+        productos = ultimos_resultados[user]
+
+        if 0 <= idx < len(productos):
+            p = productos[idx]
+            seleccion_pendiente[user] = p
+            resp.message(
+                f"¿Quieres agregar *{p['nombre']}* por *${p['precio']}*? (sí/no)"
+            )
+        else:
+            resp.message("❌ Opción inválida.")
+
+        return str(resp)
+
     # ---- SALUDO ----
     if body in ["hola", "menu", "inicio"]:
         resp.message(saludo())
         return str(resp)
 
-    # ---- BÚSQUEDA DE PRODUCTOS ----
+    # ---- BÚSQUEDA ----
     productos = buscar(body, INVENTARIO)
+    ultimos_resultados[user] = productos
 
-    # si encuentra exactamente 1 producto → pedir confirmación
-    if len(productos) == 1:
-        p = productos[0]
-        seleccion_pendiente[user] = p
-        resp.message(
-            f"¿Quieres agregar *{p['nombre']}* por *${p['precio']}*? (sí/no)"
-        )
-        return str(resp)
-
-    # si hay varios o ninguno → comportamiento original
     resp.message(lista_productos(productos))
     return str(resp)
 
 @app.route("/")
 def home():
     return "Bot de tienda funcionando 🚀"
+
