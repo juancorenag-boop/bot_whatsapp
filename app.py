@@ -28,7 +28,7 @@ def whatsapp():
         resp.message(saludo())
         return str(resp)
 
-    # inicializar sesión
+    # inicializar sesión si no existe
     if from_number not in orders:
         orders[from_number] = {
             "step": "buscar",
@@ -50,14 +50,16 @@ def whatsapp():
         order["resultados"] = resultados
         order["step"] = "seleccionar"
 
-        resp.message(lista_productos(resultados))
-        resp.message("✍️ Escribe el nombre exacto del producto que deseas.")
+        resp.message(
+            lista_productos(resultados) +
+            "\n✍️ Escribe el *nombre exacto* del producto que deseas."
+        )
         return str(resp)
 
     # ===== PASO 2: SELECCIONAR PRODUCTO =====
     if order["step"] == "seleccionar":
         for p in order["resultados"]:
-            if body in p["nombre"].lower():
+            if p["nombre"].lower() == body:
                 order["cart"].append(p)
                 order["total"] += p["precio"]
                 order["step"] = "mas"
@@ -71,7 +73,7 @@ def whatsapp():
                 )
                 return str(resp)
 
-        resp.message("❌ No reconocí ese producto. Escríbelo como aparece.")
+        resp.message("❌ No reconocí ese producto. Escríbelo exactamente como aparece.")
         return str(resp)
 
     # ===== PASO 3: ¿ALGO MÁS? =====
@@ -87,8 +89,7 @@ def whatsapp():
             resp.message(resumen)
             return str(resp)
 
-        # si escribe otra cosa, se interpreta como nueva búsqueda
-        order["step"] = "buscar"
+        # si escribe otra cosa, vuelve a buscar
         resultados = buscar(body, INVENTARIO)
 
         if not resultados:
@@ -97,8 +98,11 @@ def whatsapp():
 
         order["resultados"] = resultados
         order["step"] = "seleccionar"
-        resp.message(lista_productos(resultados))
-        resp.message("✍️ Escribe el nombre del producto.")
+
+        resp.message(
+            lista_productos(resultados) +
+            "\n✍️ Escribe el *nombre exacto* del producto."
+        )
         return str(resp)
 
     # ===== PASO 4: CONFIRMAR =====
@@ -131,4 +135,3 @@ def whatsapp():
 @app.route("/")
 def home():
     return "Bot de tienda funcionando 🚀"
-
