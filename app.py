@@ -53,7 +53,7 @@ def whatsapp():
     # ===== PASO 3: CONFIRMAR PRODUCTO =====
     if order["step"] == "confirmar_producto":
         for p in order["resultados"]:
-            if body == p["nombre"].lower():
+            if body in p["nombre"].lower():
                 order["producto_actual"] = p
                 order["step"] = "cantidad"
                 resp.message(f"🛒 ¿Cuántas unidades de *{p['nombre']}* deseas?")
