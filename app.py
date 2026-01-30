@@ -15,28 +15,25 @@ def user_id(req):
 
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
-    body = request.form.get("Body", "").strip().lower()
+    body_raw = request.form.get("Body", "").strip()
+    body = body_raw.lower()
     user = user_id(request)
 
     resp = MessagingResponse()
 
-    # CONFIRMACIÓN
+    # ---- CONFIRMACIÓN SI / NO ----
     if body in ["si", "sí", "no"] and user in seleccion_pendiente:
         p = seleccion_pendiente.pop(user)
         if body in ["si", "sí"]:
-            resp.message(f"{p['nombre']} agregado al pedido.")
+            resp.message(f"✅ {p['nombre']} agregado al pedido.")
         else:
-            resp.message("Producto no agregado.")
+            resp.message("❌ Producto no agregado.")
         return str(resp)
 
-    # SELECCIÓN POR NÚMERO
-    if body.isdigit():
-        if user not in ultimos_resultados:
-            resp.message("Primero busca un producto.")
-            return str(resp)
-
-        idx = int(body) - 1
+    # ---- SELECCIÓN POR NÚMERO (SOLO SI YA HAY LISTA) ----
+    if body.isdigit() and user in ultimos_resultados:
         productos = ultimos_resultados[user]
+        idx = int(body) - 1
 
         if 0 <= idx < len(productos):
             p = productos[idx]
@@ -45,25 +42,28 @@ def whatsapp():
                 f"¿Quieres agregar {p['nombre']} por ${p['precio']}? (si/no)"
             )
         else:
-            resp.message("Número inválido.")
+            resp.message("❌ Número inválido.")
         return str(resp)
 
-    # SALUDO
+    # ---- SALUDO ----
     if body in ["hola", "menu", "inicio"]:
+        ultimos_resultados.pop(user, None)
+        seleccion_pendiente.pop(user, None)
         resp.message(saludo())
         return str(resp)
 
-    # BÚSQUEDA
+    # ---- BÚSQUEDA POR NOMBRE (ESTO SIEMPRE FUNCIONA) ----
     productos = buscar(body, INVENTARIO)
 
     if productos:
         ultimos_resultados[user] = productos
         resp.message(lista_productos(productos))
     else:
-        resp.message("No encontré productos con ese nombre.")
+        resp.message("❌ No encontré productos con ese nombre.")
 
     return str(resp)
 
 @app.route("/")
 def home():
     return "Bot de tienda funcionando"
+
