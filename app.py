@@ -1,5 +1,6 @@
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
+import re
 
 from search import buscar
 from responses import saludo, lista_productos
@@ -36,11 +37,12 @@ def whatsapp():
         total = 0
 
         for i, p in enumerate(pedido, start=1):
+            subtotal = p["precio"] * p["cantidad"]
             resumen += (
-                f"{i}. {p['tipo'].title()} {p['marca'].title()} "
-                f"- ${p['precio']}\n"
+                f"{i}. {p['cantidad']} x {p['tipo'].title()} {p['marca'].title()} "
+                f"- ${subtotal}\n"
             )
-            total += p["precio"]
+            total += subtotal
 
         resumen += f"\n💰 *Total:* ${total}\n"
         resumen += "\nGracias por tu compra 🙌"
@@ -53,13 +55,43 @@ def whatsapp():
 
         return str(resp)
 
+    # ---- CANTIDAD EXPLÍCITA (ej: 2 de arroz) ----
+    match = re.match(r"^\s*(\d+)\s+de\s+(.+)", text_lower)
+
+    if match:
+        cantidad = int(match.group(1))
+        producto_txt = match.group(2)
+
+        resultados = buscar(producto_txt)
+
+        if not resultados:
+            msg.body("❌ No encontré ese producto.")
+            return str(resp)
+
+        producto = resultados[0].copy()
+        producto["cantidad"] = cantidad
+
+        orders.setdefault(user, []).append(producto)
+
+        msg.body(
+            f"✅ Agregado:\n"
+            f"{cantidad} x {producto['tipo'].title()} {producto['marca'].title()} "
+            f"- ${producto['precio']} c/u\n\n"
+            "¿Deseas agregar algo más?\n"
+            "👉 Escribe el producto\n"
+            "👉 O escribe *ok* para finalizar"
+        )
+        return str(resp)
+
     # ---- SELECCIÓN POR NÚMERO ----
     if text.isdigit() and user in last_results:
         idx = int(text) - 1
         productos = last_results[user]
 
         if 0 <= idx < len(productos):
-            producto = productos[idx]
+            producto = productos[idx].copy()
+            producto["cantidad"] = 1
+
             orders.setdefault(user, []).append(producto)
 
             msg.body(
@@ -73,7 +105,7 @@ def whatsapp():
 
         return str(resp)
 
-    # ---- BÚSQUEDA POR NOMBRE ----
+    # ---- BÚSQUEDA POR TEXTO ----
     resultados = buscar(text_lower)
 
     if resultados:
@@ -92,4 +124,3 @@ if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-    
