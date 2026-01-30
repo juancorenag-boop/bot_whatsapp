@@ -11,14 +11,14 @@ app = Flask(__name__)
 ultimos_resultados = {}
 seleccion_pendiente = {}
 
-def get_user_id(req):
-    # normaliza el identificador de WhatsApp
+def user_id(req):
     return req.form.get("From", "").replace("whatsapp:", "")
 
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
-    body = request.form.get("Body", "").strip().lower()
-    user = get_user_id(request)
+    body_raw = request.form.get("Body", "").strip()
+    body = body_raw.lower()
+    user = user_id(request)
 
     resp = MessagingResponse()
 
@@ -33,14 +33,14 @@ def whatsapp():
 
         return str(resp)
 
-    # ---- SELECCIÓN POR NÚMERO ----
+    # ---- SELECCIÓN POR NÚMERO (FORZADA) ----
     if body.isdigit():
         if user not in ultimos_resultados:
             resp.message("⚠️ Primero busca un producto.")
             return str(resp)
 
-        idx = int(body) - 1
         productos = ultimos_resultados[user]
+        idx = int(body) - 1
 
         if 0 <= idx < len(productos):
             p = productos[idx]
@@ -49,7 +49,7 @@ def whatsapp():
                 f"¿Quieres agregar *{p['nombre']}* por *${p['precio']}*? (sí/no)"
             )
         else:
-            resp.message("❌ Número inválido.")
+            resp.message("❌ Ese número no corresponde a un producto.")
 
         return str(resp)
 
