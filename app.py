@@ -10,9 +10,7 @@ app = Flask(__name__)
 orders = {}
 last_results = {}
 pending_product = {}
-awaiting_confirmation = set()
-awaiting_address = set()
-addresses = {}
+awaiting_confirmation = set()  # usuarios en fase confirmación
 
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
@@ -29,44 +27,16 @@ def whatsapp():
         msg.body(saludo())
         return str(resp)
 
-    # ---- RECIBIR DIRECCIÓN ----
-    if user in awaiting_address:
-        addresses[user] = text
-        pedido = orders.get(user, [])
-
-        resumen = "✅ *Pedido confirmado*\n\n📍 *Dirección:*\n"
-        resumen += f"{text}\n\n🧾 *Detalle del pedido:*\n"
-
-        total = 0
-        for i, p in enumerate(pedido, start=1):
-            subtotal = p["precio"] * p["cantidad"]
-            resumen += (
-                f"{i}. {p['cantidad']} x {p['tipo'].title()} {p['marca'].title()} "
-                f"- ${subtotal}\n"
-            )
-            total += subtotal
-
-        resumen += f"\n💰 *Total:* ${total}\n\n🙌 Gracias por tu compra"
-
-        # limpiar todo
+    # ---- CONFIRMAR PEDIDO ----
+    if text_lower == "confirmar" and user in awaiting_confirmation:
+        msg.body("✅ Pedido confirmado 🙌\nGracias por tu compra.")
         orders.pop(user, None)
         last_results.pop(user, None)
         pending_product.pop(user, None)
         awaiting_confirmation.discard(user)
-        awaiting_address.discard(user)
-        addresses.pop(user, None)
-
-        msg.body(resumen)
         return str(resp)
 
-    # ---- CONFIRMAR PEDIDO ----
-    if text_lower == "confirmar" and user in awaiting_confirmation:
-        awaiting_confirmation.discard(user)
-        awaiting_address.add(user)
-        msg.body("📍 Por favor escribe tu *dirección de entrega*")
-        return str(resp)
-
-    # ---- QUITAR PRODUCTO ----
+    # ---- QUITAR PRODUCTO (ej: quitar 1 de arroz) ----
     match_quitar = re.match(r"quitar\s+(\d+)\s+de\s+(.+)", text_lower)
 
     if match_quitar and user in awaiting_confirmation:
@@ -110,7 +80,7 @@ def whatsapp():
         msg.body(resumen)
         return str(resp)
 
-    # ---- MOSTRAR RESUMEN ----
+    # ---- MOSTRAR RESUMEN (ok) ----
     if text_lower == "ok":
         pedido = orders.get(user, [])
 
@@ -130,7 +100,7 @@ def whatsapp():
             total += subtotal
 
         resumen += f"\n💰 *Total:* ${total}\n\n"
-        resumen += "👉 Escribe *confirmar* para continuar\n"
+        resumen += "👉 Escribe *confirmar* para finalizar\n"
         resumen += "👉 O *quitar 1 de producto*"
 
         awaiting_confirmation.add(user)
