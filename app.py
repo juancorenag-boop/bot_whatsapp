@@ -7,7 +7,6 @@ from responses import saludo, lista_productos
 
 app = Flask(__name__)
 
-# memoria simple
 ultimos_resultados = {}
 seleccion_pendiente = {}
 
@@ -16,64 +15,55 @@ def user_id(req):
 
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
-    body_raw = request.form.get("Body", "").strip()
-    body = body_raw.lower()
+    body = request.form.get("Body", "").strip().lower()
     user = user_id(request)
 
     resp = MessagingResponse()
 
-    # ---- CONFIRMACIÓN SI / NO ----
+    # CONFIRMACIÓN
     if body in ["si", "sí", "no"] and user in seleccion_pendiente:
-        producto = seleccion_pendiente.pop(user)
-
+        p = seleccion_pendiente.pop(user)
         if body in ["si", "sí"]:
-            resp.message(f"✅ *{producto['nombre']}* agregado al pedido.")
+            resp.message(f"{p['nombre']} agregado al pedido.")
         else:
-            resp.message("❌ Producto no agregado.")
-
+            resp.message("Producto no agregado.")
         return str(resp)
 
-    # ---- SELECCIÓN POR NÚMERO (FORZADA) ----
+    # SELECCIÓN POR NÚMERO
     if body.isdigit():
         if user not in ultimos_resultados:
-            resp.message("⚠️ Primero busca un producto.")
+            resp.message("Primero busca un producto.")
             return str(resp)
 
-        productos = ultimos_resultados[user]
         idx = int(body) - 1
+        productos = ultimos_resultados[user]
 
         if 0 <= idx < len(productos):
             p = productos[idx]
             seleccion_pendiente[user] = p
             resp.message(
-                f"¿Quieres agregar *{p['nombre']}* por *${p['precio']}*? (sí/no)"
+                f"¿Quieres agregar {p['nombre']} por ${p['precio']}? (si/no)"
             )
         else:
-            resp.message("❌ Ese número no corresponde a un producto.")
-
+            resp.message("Número inválido.")
         return str(resp)
 
-    # ---- SALUDO ----
+    # SALUDO
     if body in ["hola", "menu", "inicio"]:
         resp.message(saludo())
         return str(resp)
 
-    # ---- BÚSQUEDA ----
+    # BÚSQUEDA
     productos = buscar(body, INVENTARIO)
 
     if productos:
         ultimos_resultados[user] = productos
         resp.message(lista_productos(productos))
     else:
-        resp.message("❌ No encontré productos con ese nombre.")
+        resp.message("No encontré productos con ese nombre.")
 
     return str(resp)
 
 @app.route("/")
 def home():
-    return "Bot de tienda funcionando 🚀"
-
-if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    return "Bot de tienda funcionando"
