@@ -1,90 +1,236 @@
+from flask import Flask, request, session, render_template_string
+import re
+
+from search import buscar
+from responses import saludo, lista_productos
+
+app = Flask(__name__)
+app.secret_key = "chat-dev-secret"
+
+BUSINESS_PHONE = "+573216642926"
+
+# ===== MEMORIA =====
+orders = {}
+last_results = {}
+pending_product = {}
+awaiting_confirmation = set()
+awaiting_address = set()
+awaiting_payment = set()
+awaiting_change = set()
+
+BANK_INFO = (
+    "🏦 *Datos para transferencia:*\n\n"
+    "Banco: Bancolombia\n"
+    "Cuenta: 123456789\n"
+    "Tipo: Ahorros\n"
+    "Nombre: Tienda XYZ\n\n"
+    "Cuando realices el pago envía el comprobante 📸"
+)
+
+# =========================
+# 📤 ENVÍO SIMULADO
+# =========================
+def send_order_to_business(phone, resumen):
+    print("\n==============================")
+    print("📦 NUEVO PEDIDO PARA EL NEGOCIO")
+    print(f"📞 Enviar a: {phone}")
+    print(resumen)
+    print("==============================\n")
+
+def resumen_para_negocio(user):
+    pedido = orders.get(user, [])
+    if not pedido:
+        return None
+
+    texto = "🛒 NUEVO PEDIDO\n\n"
+    total = 0
+
+    for p in pedido:
+        subtotal = p["precio"] * p["cantidad"]
+        texto += (
+            f"- {p['cantidad']} x {p['tipo'].title()} {p['marca'].title()} "
+            f"= ${subtotal}\n"
+        )
+        total += subtotal
+
+    texto += f"\n💰 TOTAL: ${total}"
+    return texto
+
+# =========================
+# 🧠 LÓGICA DEL BOT
+# =========================
+def process_message(text, user):
+    text_lower = text.lower().strip()
+
+    # ---- SALUDO ----
+    if text_lower in ["hola", "buenas", "hello", "menu", "inicio"]:
+        return saludo()
+
+    # ---- CAMBIO ----
+    if user in awaiting_change:
+        resumen = resumen_para_negocio(user)
+        if resumen:
+            send_order_to_business(BUSINESS_PHONE, resumen)
+
+        awaiting_change.discard(user)
+        orders.pop(user, None)
+        return "✅ Pedido registrado correctamente 🙌"
+
+    # ---- MÉTODO DE PAGO ----
+    if user in awaiting_payment:
+        if text_lower in ["transferencia", "1"]:
+            resumen = resumen_para_negocio(user)
+            if resumen:
+                send_order_to_business(BUSINESS_PHONE, resumen)
+
+            awaiting_payment.discard(user)
+            orders.pop(user, None)
+            return BANK_INFO
+
+        if text_lower in ["efectivo", "2"]:
+            awaiting_payment.discard(user)
+            awaiting_change.add(user)
+            return "💵 ¿Necesitas cambio?\nEj: tengo 50.000 o escribe *exacto*"
+
+        return "❌ Opción inválida."
+
+    # ---- DIRECCIÓN ----
+    if user in awaiting_address:
+        awaiting_address.discard(user)
+        awaiting_payment.add(user)
+        return (
+            "💳 ¿Cuál será tu método de pago?\n"
+            "1️⃣ Transferencia\n"
+            "2️⃣ Efectivo"
+        )
+
+    # ---- CONFIRMAR ----
+    if text_lower == "confirmar" and user in awaiting_confirmation:
+        awaiting_confirmation.discard(user)
+        awaiting_address.add(user)
+        return "📍 Por favor escribe la dirección de entrega"
+
+    # ---- QUITAR PRODUCTO (FIX REAL) ----
+    match_quitar = re.match(r"quitar\s+(\d+)\s+de\s+(.+)", text_lower)
+    if match_quitar and user in awaiting_confirmation:
+        cantidad = int(match_quitar.group(1))
+        producto_txt = match_quitar.group(2).lower()
+
+        pedido = orders.get(user, [])
+
+        for p in pedido:
+            nombre = f"{p['tipo']} {p['marca']}".lower()
+            if producto_txt in nombre:
+                if p["cantidad"] > cantidad:
+                    p["cantidad"] -= cantidad
+                else:
+                    pedido.remove(p)
+                break
+
+        return resumen_pedido(user)
+
+    # ---- MOSTRAR RESUMEN ----
+    if text_lower == "ok":
+        awaiting_confirmation.add(user)
+        return resumen_pedido(user)
+
+    # ---- CANTIDAD ----
+    if user in pending_product and text.isdigit():
+        producto = pending_product.pop(user)
+        producto["cantidad"] = int(text)
+        orders.setdefault(user, []).append(producto)
+        return (
+            "✅ Producto agregado.\n\n"
+            "👉 Escribe otro producto\n"
+            "👉 O escribe *ok* para finalizar"
+        )
+
+    # ---- SELECCIÓN ----
+    if text.isdigit() and user in last_results:
+        idx = int(text) - 1
+        productos = last_results[user]
+        if 0 <= idx < len(productos):
+            pending_product[user] = productos[idx].copy()
+            return (
+                f"¿Cuántas unidades de "
+                f"{productos[idx]['tipo'].title()} {productos[idx]['marca'].title()} deseas?"
+            )
+
+    # ---- BÚSQUEDA ----
+    resultados = buscar(text_lower)
+    if resultados:
+        last_results[user] = resultados
+        return lista_productos(resultados)
+
+    return "❌ No entendí tu mensaje."
+
+def resumen_pedido(user):
+    pedido = orders.get(user, [])
+    if not pedido:
+        return "🛒 Tu pedido está vacío"
+
+    resumen = "🧾 *Resumen de tu pedido:*\n\n"
+    total = 0
+
+    for i, p in enumerate(pedido, start=1):
+        subtotal = p["precio"] * p["cantidad"]
+        resumen += (
+            f"{i}. {p['cantidad']} x {p['tipo'].title()} {p['marca'].title()} "
+            f"- ${subtotal}\n"
+        )
+        total += subtotal
+
+    resumen += f"\n💰 *Total:* ${total}\n\n"
+    resumen += "👉 confirmar\n👉 quitar 1 de arroz diana"
+    return resumen
+
+# =========================
+# 💬 CHAT WEB
+# =========================
 CHAT_HTML = """
 <!doctype html>
 <html>
 <head>
   <title>Chat Bot</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #ece5dd;
-    }
-    .chat {
-      max-width: 600px;
-      margin: 30px auto;
-      background: #fff;
-      padding: 15px;
-      border-radius: 10px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
-    }
-    .msg {
-      margin: 10px 0;
-      max-width: 80%;
-      padding: 10px 14px;
-      border-radius: 10px;
-      white-space: pre-line;
-    }
-    .user-msg {
-      background: #dcf8c6;
-      margin-left: auto;
-      text-align: right;
-    }
-    .bot-msg {
-      background: #f1f0f0;
-      margin-right: auto;
-    }
-    .sender {
-      font-size: 12px;
-      opacity: 0.6;
-      margin-bottom: 4px;
-    }
-    form {
-      display: flex;
-      gap: 8px;
-      margin-top: 15px;
-    }
-    input {
-      flex: 1;
-      padding: 10px;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-    }
-    button {
-      padding: 10px 14px;
-      border-radius: 6px;
-      border: none;
-      background: #128c7e;
-      color: white;
-      cursor: pointer;
-    }
-    .clear {
-      text-align: center;
-      margin-top: 10px;
-    }
-    .clear a {
-      font-size: 12px;
-      color: #888;
-      text-decoration: none;
-    }
+    body { font-family: Arial; background:#f4f4f4; }
+    .chat { max-width:600px; margin:40px auto; background:#fff; padding:20px; }
+    .msg { margin:8px 0; }
+    .user { font-weight:bold; }
+    input { width:80%; padding:8px; }
+    button { padding:8px; }
   </style>
 </head>
 <body>
   <div class="chat">
     {% for m in messages %}
-      <div class="msg {% if m.sender == 'Tú' %}user-msg{% else %}bot-msg{% endif %}">
-        <div class="sender">{{ m.sender }}</div>
-        {{ m.text }}
-      </div>
+      <div class="msg"><span class="user">{{ m.sender }}:</span> {{ m.text }}</div>
     {% endfor %}
-
     <form method="post">
-      <input name="message" placeholder="Escribe un mensaje..." autofocus required>
+      <input name="message" autofocus required>
       <button>Enviar</button>
     </form>
-
-    <div class="clear">
-      <a href="/clear">🗑 Borrar conversación</a>
-    </div>
   </div>
 </body>
 </html>
 """
+
+@app.route("/chat", methods=["GET", "POST"])
+def chat():
+    if "messages" not in session:
+        session["messages"] = []
+
+    if request.method == "POST":
+        text = request.form["message"]
+        user = "web-user"
+
+        session["messages"].append({"sender": "Tú", "text": text})
+        reply = process_message(text, user)
+        session["messages"].append({"sender": "Bot", "text": reply})
+        session.modified = True
+
+    return render_template_string(CHAT_HTML, messages=session["messages"])
+
+@app.route("/")
+def home():
+    return "Bot activo 🚀 — entra a /chat"
