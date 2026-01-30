@@ -24,11 +24,15 @@ BANK_INFO = (
     "Cuando realices el pago envía el comprobante 📸"
 )
 
-@app.route("/whatsapp", methods=["POST"])
-def whatsapp():
+@app.route("/test", methods=["GET", "POST"])
+def test():
+    text = request.values.get("Body", "")
+    user = request.values.get("From", "whatsapp:+TEST")
+
     resp = MessagingResponse()
-    resp.message("Webhook vivo desde Render ✅")
+    resp.message(f"Recibí: {text}")
     return str(resp)
+
     
     # ---- SALUDO ----
     if text_lower in ["hola", "buenas", "hello", "menu", "inicio"]:
