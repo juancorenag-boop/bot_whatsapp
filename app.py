@@ -46,14 +46,15 @@ def resumen_para_negocio(user):
     total = 0
 
     for p in pedido:
-        subtotal = p["precio"] * p["cantidad"]
-        texto += (
-            f"- {p['cantidad']} x {p['tipo'].title()} {p['marca'].title()} "
-            f"= ${subtotal}\n"
-        )
+        if p.get("unidad") == "libra":
+            subtotal = p["subtotal"]
+            texto += f"- {p['cantidad']} lb {p['tipo'].title()} = ${int(subtotal)}\n"
+        else:
+            subtotal = p["precio"] * p["cantidad"]
+            texto += f"- {p['cantidad']} x {p['tipo'].title()} {p['marca'].title()} = ${subtotal}\n"
         total += subtotal
 
-    texto += f"\n💰 TOTAL: ${total}"
+    texto += f"\n💰 TOTAL: ${int(total)}"
     return texto
 
 # =========================
@@ -110,19 +111,20 @@ def process_message(text, user):
         awaiting_address.add(user)
         return "📍 Por favor escribe la dirección de entrega"
 
-    # ---- QUITAR PRODUCTO (FIX REAL) ----
-    match_quitar = re.match(r"quitar\s+(\d+)\s+de\s+(.+)", text_lower)
+    # ---- QUITAR PRODUCTO ----
+    match_quitar = re.match(r"quitar\s+([\d\.]+)\s+de\s+(.+)", text_lower)
     if match_quitar and user in awaiting_confirmation:
-        cantidad = int(match_quitar.group(1))
-        producto_txt = match_quitar.group(2).lower()
+        cantidad = float(match_quitar.group(1))
+        producto_txt = match_quitar.group(2)
 
         pedido = orders.get(user, [])
-
         for p in pedido:
             nombre = f"{p['tipo']} {p['marca']}".lower()
             if producto_txt in nombre:
                 if p["cantidad"] > cantidad:
                     p["cantidad"] -= cantidad
+                    if p.get("unidad") == "libra":
+                        p["subtotal"] = p["cantidad"] * p["precio"]
                 else:
                     pedido.remove(p)
                 break
@@ -134,26 +136,72 @@ def process_message(text, user):
         awaiting_confirmation.add(user)
         return resumen_pedido(user)
 
-    # ---- CANTIDAD ----
-    if user in pending_product and text.isdigit():
-        producto = pending_product.pop(user)
-        producto["cantidad"] = int(text)
-        orders.setdefault(user, []).append(producto)
-        return (
-            "✅ Producto agregado.\n\n"
-            "👉 Escribe otro producto\n"
-            "👉 O escribe *ok* para finalizar"
-        )
+    # ---- CANTIDAD (UNIDAD O LIBRA) ----
+    if user in pending_product:
+        producto = pending_product[user]
+
+        # 👉 PRODUCTO POR LIBRA
+        if producto.get("unidad") == "libra":
+            try:
+                libras = float(text.replace(",", "."))
+                if libras <= 0:
+                    raise ValueError
+            except ValueError:
+                return (
+                    "❌ Escribe una cantidad válida.\n"
+                    "Ejemplos:\n"
+                    "0.5 (media libra)\n"
+                    "1 (una libra)\n"
+                    "1.5 (libra y media)\n"
+                    "2 (dos libras)"
+                )
+
+            producto["cantidad"] = libras
+            producto["subtotal"] = libras * producto["precio"]
+            orders.setdefault(user, []).append(producto)
+            pending_product.pop(user)
+
+            return (
+                f"✅ {libras} lb de {producto['tipo'].title()} agregado\n"
+                f"💰 Subtotal: ${int(producto['subtotal'])}\n\n"
+                "👉 Escribe otro producto\n"
+                "👉 O escribe *ok* para finalizar"
+            )
+
+        # 👉 PRODUCTO POR UNIDAD
+        if text.isdigit():
+            producto["cantidad"] = int(text)
+            orders.setdefault(user, []).append(producto)
+            pending_product.pop(user)
+            return (
+                "✅ Producto agregado.\n\n"
+                "👉 Escribe otro producto\n"
+                "👉 O escribe *ok* para finalizar"
+            )
+
+        return "❌ Escribe un número válido."
 
     # ---- SELECCIÓN ----
     if text.isdigit() and user in last_results:
         idx = int(text) - 1
         productos = last_results[user]
         if 0 <= idx < len(productos):
-            pending_product[user] = productos[idx].copy()
+            prod = productos[idx]
+            pending_product[user] = prod.copy()
+
+            if prod.get("unidad") == "libra":
+                return (
+                    f"💰 Precio: ${prod['precio']} por libra\n\n"
+                    "¿Cuántas libras necesitas?\n"
+                    "0.5 (media libra)\n"
+                    "1 (una libra)\n"
+                    "1.5 (libra y media)\n"
+                    "2 (dos libras)"
+                )
+
             return (
                 f"¿Cuántas unidades de "
-                f"{productos[idx]['tipo'].title()} {productos[idx]['marca'].title()} deseas?"
+                f"{prod['tipo'].title()} {prod['marca'].title()} deseas?"
             )
 
     # ---- BÚSQUEDA ----
@@ -173,64 +221,14 @@ def resumen_pedido(user):
     total = 0
 
     for i, p in enumerate(pedido, start=1):
-        subtotal = p["precio"] * p["cantidad"]
-        resumen += (
-            f"{i}. {p['cantidad']} x {p['tipo'].title()} {p['marca'].title()} "
-            f"- ${subtotal}\n"
-        )
-        total += subtotal
+        if p.get("unidad") == "libra":
+            resumen += f"{i}. {p['cantidad']} lb {p['tipo'].title()} — ${int(p['subtotal'])}\n"
+            total += p["subtotal"]
+        else:
+            subtotal = p["precio"] * p["cantidad"]
+            resumen += f"{i}. {p['cantidad']} x {p['tipo'].title()} {p['marca'].title()} — ${subtotal}\n"
+            total += subtotal
 
-    resumen += f"\n💰 *Total:* ${total}\n\n"
-    resumen += "👉 confirmar\n👉 quitar 1 de arroz diana"
+    resumen += f"\n💰 *Total:* ${int(total)}\n\n"
+    resumen += "👉 confirmar\n👉 quitar 0.5 de tomate"
     return resumen
-
-# =========================
-# 💬 CHAT WEB
-# =========================
-CHAT_HTML = """
-<!doctype html>
-<html>
-<head>
-  <title>Chat Bot</title>
-  <style>
-    body { font-family: Arial; background:#f4f4f4; }
-    .chat { max-width:600px; margin:40px auto; background:#fff; padding:20px; }
-    .msg { margin:8px 0; }
-    .user { font-weight:bold; }
-    input { width:80%; padding:8px; }
-    button { padding:8px; }
-  </style>
-</head>
-<body>
-  <div class="chat">
-    {% for m in messages %}
-      <div class="msg"><span class="user">{{ m.sender }}:</span> {{ m.text }}</div>
-    {% endfor %}
-    <form method="post">
-      <input name="message" autofocus required>
-      <button>Enviar</button>
-    </form>
-  </div>
-</body>
-</html>
-"""
-
-@app.route("/chat", methods=["GET", "POST"])
-def chat():
-    if "messages" not in session:
-        session["messages"] = []
-
-    if request.method == "POST":
-        text = request.form["message"]
-        user = "web-user"
-
-        session["messages"].append({"sender": "Tú", "text": text})
-        reply = process_message(text, user)
-        session["messages"].append({"sender": "Bot", "text": reply})
-        session.modified = True
-
-    return render_template_string(CHAT_HTML, messages=session["messages"])
-
-@app.route("/")
-def home():
-    return "Bot activo 🚀 — entra a /chat"
