@@ -6,8 +6,8 @@ from responses import saludo, lista_productos
 
 app = Flask(__name__)
 
-orders = {}
-last_results = {}
+orders = {}         # pedidos por usuario
+last_results = {}   # últimos resultados mostrados
 
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
@@ -19,12 +19,41 @@ def whatsapp():
 
     text_lower = text.lower()
 
-    # SALUDO
-    if text_lower in ["hola", "buenas", "hello"]:
+    # ---- SALUDO ----
+    if text_lower in ["hola", "buenas", "hello", "menu", "inicio"]:
         msg.body(saludo())
         return str(resp)
 
-    # SELECCIÓN NUMÉRICA
+    # ---- FINALIZAR PEDIDO ----
+    if text_lower == "ok":
+        pedido = orders.get(user, [])
+
+        if not pedido:
+            msg.body("🛒 Tu pedido está vacío.")
+            return str(resp)
+
+        resumen = "🧾 *Resumen de tu pedido:*\n\n"
+        total = 0
+
+        for i, p in enumerate(pedido, start=1):
+            resumen += (
+                f"{i}. {p['tipo'].title()} {p['marca'].title()} "
+                f"- ${p['precio']}\n"
+            )
+            total += p["precio"]
+
+        resumen += f"\n💰 *Total:* ${total}\n"
+        resumen += "\nGracias por tu compra 🙌"
+
+        msg.body(resumen)
+
+        # limpiar estado
+        orders.pop(user, None)
+        last_results.pop(user, None)
+
+        return str(resp)
+
+    # ---- SELECCIÓN POR NÚMERO ----
     if text.isdigit() and user in last_results:
         idx = int(text) - 1
         productos = last_results[user]
@@ -34,15 +63,17 @@ def whatsapp():
             orders.setdefault(user, []).append(producto)
 
             msg.body(
-                f"✅ Agregado:\n"
-                f"{producto['tipo'].title()} {producto['marca'].title()} "
-                f"- ${producto['precio']}"
+                f"✅ *{producto['tipo'].title()} {producto['marca'].title()}* agregado.\n\n"
+                "¿Deseas agregar algo más?\n"
+                "👉 Escribe el nombre del producto\n"
+                "👉 O escribe *ok* para finalizar"
             )
         else:
             msg.body("❌ Número inválido.")
+
         return str(resp)
 
-    # BÚSQUEDA POR TEXTO
+    # ---- BÚSQUEDA POR NOMBRE ----
     resultados = buscar(text_lower)
 
     if resultados:
@@ -53,5 +84,12 @@ def whatsapp():
 
     return str(resp)
 
+@app.route("/")
+def home():
+    return "Bot de tienda funcionando 🚀"
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+    
