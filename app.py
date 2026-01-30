@@ -1,12 +1,13 @@
-from flask import Flask, request
-from twilio.twiml.messaging_response import MessagingResponse
+from flask import Flask, request, session, render_template_string
 import re
 
 from search import buscar
 from responses import saludo, lista_productos
 
 app = Flask(__name__)
+app.secret_key = "chat-dev-secret"
 
+# ===== MEMORIA DEL BOT =====
 orders = {}
 last_results = {}
 pending_product = {}
@@ -24,72 +25,57 @@ BANK_INFO = (
     "Cuando realices el pago envía el comprobante 📸"
 )
 
-@app.route("/test", methods=["GET", "POST"])
-def test():
-    text = request.values.get("Body", "")
-    user = request.values.get("From", "whatsapp:+TEST")
+# =====================================================
+# 🧠 LÓGICA CENTRAL DEL BOT (WHATSAPP / CHAT / FUTURO)
+# =====================================================
+def process_message(text, user):
+    text_lower = text.lower().strip()
 
-    resp = MessagingResponse()
-    resp.message(f"Recibí: {text}")
-    return str(resp)
-
-    
     # ---- SALUDO ----
     if text_lower in ["hola", "buenas", "hello", "menu", "inicio"]:
-        msg.body(saludo())
-        return str(resp)
+        return saludo()
 
-    # ---- CAMBIO EN EFECTIVO ----
+    # ---- CAMBIO ----
     if user in awaiting_change:
-        msg.body(
+        awaiting_change.discard(user)
+        orders.pop(user, None)
+        return (
             "✅ Pedido registrado correctamente 🙌\n"
             "En breve te contactamos para la entrega 🚚"
         )
-        awaiting_change.discard(user)
-        orders.pop(user, None)
-        return str(resp)
 
     # ---- MÉTODO DE PAGO ----
     if user in awaiting_payment:
         if text_lower in ["transferencia", "1"]:
-            msg.body(BANK_INFO)
             awaiting_payment.discard(user)
             orders.pop(user, None)
-            return str(resp)
+            return BANK_INFO
 
         if text_lower in ["efectivo", "2"]:
-            msg.body(
-                "💵 ¿Necesitas cambio?\n"
-                "Ej: tengo 50.000 o escribe *exacto*"
-            )
             awaiting_payment.discard(user)
             awaiting_change.add(user)
-            return str(resp)
+            return "💵 ¿Necesitas cambio?\nEj: tengo 50.000 o escribe *exacto*"
 
-        msg.body("❌ Opción inválida. Escribe *transferencia* o *efectivo*.")
-        return str(resp)
+        return "❌ Opción inválida. Escribe *transferencia* o *efectivo*."
 
     # ---- DIRECCIÓN ----
     if user in awaiting_address:
-        msg.body(
+        awaiting_address.discard(user)
+        awaiting_payment.add(user)
+        return (
             "💳 ¿Cuál será tu método de pago?\n"
             "1️⃣ Transferencia\n"
             "2️⃣ Efectivo"
         )
-        awaiting_address.discard(user)
-        awaiting_payment.add(user)
-        return str(resp)
 
-    # ---- CONFIRMAR PEDIDO ----
+    # ---- CONFIRMAR ----
     if text_lower == "confirmar" and user in awaiting_confirmation:
-        msg.body("📍 Por favor escribe la dirección de entrega")
         awaiting_confirmation.discard(user)
         awaiting_address.add(user)
-        return str(resp)
+        return "📍 Por favor escribe la dirección de entrega"
 
-    # ---- QUITAR PRODUCTOS ----
+    # ---- QUITAR ----
     match_quitar = re.match(r"quitar\s+(\d+)\s+de\s+(.+)", text_lower)
-
     if match_quitar and user in awaiting_confirmation:
         cantidad = int(match_quitar.group(1))
         producto_txt = match_quitar.group(2)
@@ -103,79 +89,115 @@ def test():
                     pedido.remove(p)
                 break
 
-        resumen = "🧾 Pedido actualizado:\n\n"
-        total = 0
-        for i, p in enumerate(pedido, start=1):
-            subtotal = p["precio"] * p["cantidad"]
-            resumen += (
-                f"{i}. {p['cantidad']} x {p['tipo'].title()} {p['marca'].title()} "
-                f"- ${subtotal}\n"
-            )
-            total += subtotal
-
-        resumen += f"\n💰 Total: ${total}\n"
-        resumen += "\n👉 confirmar\n👉 quitar 1 de producto"
-
-        msg.body(resumen)
-        return str(resp)
+        return resumen_pedido(user)
 
     # ---- MOSTRAR RESUMEN ----
     if text_lower == "ok":
-        pedido = orders.get(user, [])
-        resumen = "🧾 *Resumen de tu pedido:*\n\n"
-        total = 0
-
-        for i, p in enumerate(pedido, start=1):
-            subtotal = p["precio"] * p["cantidad"]
-            resumen += (
-                f"{i}. {p['cantidad']} x {p['tipo'].title()} {p['marca'].title()} "
-                f"- ${subtotal}\n"
-            )
-            total += subtotal
-
-        resumen += f"\n💰 *Total:* ${total}\n\n"
-        resumen += "👉 confirmar\n👉 quitar 1 de producto"
-
         awaiting_confirmation.add(user)
-        msg.body(resumen)
-        return str(resp)
+        return resumen_pedido(user)
 
-    # ---- ESPERANDO CANTIDAD ----
+    # ---- CANTIDAD ----
     if user in pending_product and text.isdigit():
         producto = pending_product.pop(user)
         producto["cantidad"] = int(text)
         orders.setdefault(user, []).append(producto)
-
-        msg.body(
+        return (
             "✅ Producto agregado.\n\n"
             "¿Deseas agregar algo más?\n"
             "👉 Escribe el producto\n"
             "👉 O escribe *ok* para finalizar"
         )
-        return str(resp)
 
     # ---- SELECCIÓN ----
     if text.isdigit() and user in last_results:
         idx = int(text) - 1
         productos = last_results[user]
+        if idx < 0 or idx >= len(productos):
+            return "❌ Opción inválida"
         pending_product[user] = productos[idx].copy()
-        msg.body(
+        return (
             f"¿Cuántas unidades de "
             f"{productos[idx]['tipo'].title()} {productos[idx]['marca'].title()} deseas?"
         )
-        return str(resp)
 
     # ---- BÚSQUEDA ----
     resultados = buscar(text_lower)
-
     if resultados:
         last_results[user] = resultados
-        msg.body(lista_productos(resultados))
-    else:
-        msg.body("❌ No encontré productos con ese nombre.")
+        return lista_productos(resultados)
 
-    return str(resp)
+    return "❌ No encontré productos con ese nombre."
+
+
+def resumen_pedido(user):
+    pedido = orders.get(user, [])
+    if not pedido:
+        return "🛒 Tu pedido está vacío"
+
+    resumen = "🧾 *Resumen de tu pedido:*\n\n"
+    total = 0
+    for i, p in enumerate(pedido, start=1):
+        subtotal = p["precio"] * p["cantidad"]
+        resumen += (
+            f"{i}. {p['cantidad']} x {p['tipo'].title()} {p['marca'].title()} "
+            f"- ${subtotal}\n"
+        )
+        total += subtotal
+
+    resumen += f"\n💰 *Total:* ${total}\n\n"
+    resumen += "👉 confirmar\n👉 quitar 1 de producto"
+    return resumen
+
+
+# ===========================
+# 💬 CHAT WEB DE PRUEBAS
+# ===========================
+CHAT_HTML = """
+<!doctype html>
+<html>
+<head>
+  <title>Chat de Pruebas</title>
+  <style>
+    body { font-family: Arial; background:#f4f4f4; }
+    .chat { max-width:600px; margin:40px auto; background:#fff; padding:20px; }
+    .msg { margin:10px 0; }
+    .user { font-weight:bold; }
+    input { width:80%; padding:8px; }
+    button { padding:8px; }
+  </style>
+</head>
+<body>
+  <div class="chat">
+    {% for m in messages %}
+      <div class="msg"><span class="user">{{ m.sender }}:</span> {{ m.text }}</div>
+    {% endfor %}
+    <form method="post">
+      <input name="message" autofocus required>
+      <button>Enviar</button>
+    </form>
+  </div>
+</body>
+</html>
+"""
+
+@app.route("/chat", methods=["GET", "POST"])
+def chat():
+    if "messages" not in session:
+        session["messages"] = []
+
+    if request.method == "POST":
+        text = request.form["message"]
+        user = "web-user"
+
+        session["messages"].append({"sender": "Tú", "text": text})
+        reply = process_message(text, user)
+        session["messages"].append({"sender": "Bot", "text": reply})
+        session.modified = True
+
+    return render_template_string(CHAT_HTML, messages=session["messages"])
+
 
 @app.route("/")
 def home():
-    return "Bot de tienda funcionando 🚀"
+    return "Bot funcionando 🚀 — entra a /chat"
+
