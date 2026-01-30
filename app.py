@@ -26,14 +26,10 @@ BANK_INFO = (
 
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
-    text = request.values.get("Body", "").strip()
-    user = request.values.get("From")
-
     resp = MessagingResponse()
-    msg = resp.message()
-
-    text_lower = text.lower()
-
+    resp.message("Webhook vivo desde Render ✅")
+    return str(resp)
+    
     # ---- SALUDO ----
     if text_lower in ["hola", "buenas", "hello", "menu", "inicio"]:
         msg.body(saludo())
