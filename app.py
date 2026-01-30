@@ -1,14 +1,16 @@
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
+import re
 
 from search import buscar
 from responses import saludo, lista_productos
 
 app = Flask(__name__)
 
-orders = {}             # pedidos finales
-last_results = {}       # últimos resultados mostrados
-pending_product = {}    # producto seleccionado esperando cantidad
+orders = {}
+last_results = {}
+pending_product = {}
+awaiting_confirmation = set()  # usuarios en fase confirmación
 
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
@@ -25,7 +27,60 @@ def whatsapp():
         msg.body(saludo())
         return str(resp)
 
-    # ---- FINALIZAR PEDIDO ----
+    # ---- CONFIRMAR PEDIDO ----
+    if text_lower == "confirmar" and user in awaiting_confirmation:
+        msg.body("✅ Pedido confirmado 🙌\nGracias por tu compra.")
+        orders.pop(user, None)
+        last_results.pop(user, None)
+        pending_product.pop(user, None)
+        awaiting_confirmation.discard(user)
+        return str(resp)
+
+    # ---- QUITAR PRODUCTO (ej: quitar 1 de arroz) ----
+    match_quitar = re.match(r"quitar\s+(\d+)\s+de\s+(.+)", text_lower)
+
+    if match_quitar and user in awaiting_confirmation:
+        cantidad = int(match_quitar.group(1))
+        producto_txt = match_quitar.group(2)
+
+        pedido = orders.get(user, [])
+        encontrado = False
+
+        for p in pedido:
+            if producto_txt in p["tipo"]:
+                if p["cantidad"] > cantidad:
+                    p["cantidad"] -= cantidad
+                else:
+                    pedido.remove(p)
+                encontrado = True
+                break
+
+        if not encontrado:
+            msg.body("❌ No encontré ese producto en tu pedido.")
+            return str(resp)
+
+        if not pedido:
+            msg.body("🛒 Tu pedido quedó vacío.")
+            awaiting_confirmation.discard(user)
+            return str(resp)
+
+        resumen = "🧾 Pedido actualizado:\n\n"
+        total = 0
+        for i, p in enumerate(pedido, start=1):
+            subtotal = p["precio"] * p["cantidad"]
+            resumen += (
+                f"{i}. {p['cantidad']} x {p['tipo'].title()} {p['marca'].title()} "
+                f"- ${subtotal}\n"
+            )
+            total += subtotal
+
+        resumen += f"\n💰 Total: ${total}\n"
+        resumen += "\n👉 confirmar\n👉 quitar 1 de producto"
+
+        msg.body(resumen)
+        return str(resp)
+
+    # ---- MOSTRAR RESUMEN (ok) ----
     if text_lower == "ok":
         pedido = orders.get(user, [])
 
@@ -44,15 +99,12 @@ def whatsapp():
             )
             total += subtotal
 
-        resumen += f"\n💰 *Total:* ${total}\n"
-        resumen += "\nGracias por tu compra 🙌"
+        resumen += f"\n💰 *Total:* ${total}\n\n"
+        resumen += "👉 Escribe *confirmar* para finalizar\n"
+        resumen += "👉 O *quitar 1 de producto*"
 
+        awaiting_confirmation.add(user)
         msg.body(resumen)
-
-        orders.pop(user, None)
-        last_results.pop(user, None)
-        pending_product.pop(user, None)
-
         return str(resp)
 
     # ---- ESPERANDO CANTIDAD ----
