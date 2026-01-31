@@ -1,16 +1,10 @@
-def saludo():
-    return (
-        "👋 Bienvenido a la tienda\n\n"
-        "Escribe el producto que buscas:\n"
-        "Ej: arroz, leche, roa, diana"
-    )
-
-def lista_productos(productos):
-    msg = "🛒 Productos disponibles:\n\n"
-    for i, p in enumerate(productos, start=1):
-        msg += (
-            f"{i}. {p['tipo'].title()} {p['marca'].title()} "
-            f"- ${p['precio']} (Stock: {p['stock']})\n"
-        )
-    msg += "\nResponde con el número para agregarlo."
-    return msg
+def lista_productos(resultados):
+    texto = "🛒 Productos disponibles:\n"
+    for i, p in enumerate(resultados, start=1):
+        marca = p.get("marca","")
+        if marca:  # si hay marca
+            texto += f"{i}. {p['tipo'].title()} {marca.title()} - ${p['precio']} (Stock: {p.get('stock', 0)})\n"
+        else:  # si no hay marca
+            texto += f"{i}. {p['tipo'].title()} - ${p['precio']} (Stock: {p.get('stock', 0)})\n"
+    texto += "Responde con el número para agregarlo."
+    return texto
