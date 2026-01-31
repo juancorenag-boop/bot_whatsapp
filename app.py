@@ -218,17 +218,36 @@ def process_message(text, user):
             return f"¿Cuántas unidades de {prod['tipo'].title()} {prod.get('marca','').title()} deseas?"
 
     # ---- BÚSQUEDA ----
-    try:
-        resultados = buscar(text_lower)
-        if resultados:
-            last_results[user] = resultados
-            return lista_productos(resultados)
-    except Exception as e:
-        print(f"Error en búsqueda: {e}")
-        resultados = []
+text_normalizado = text_lower.strip()
+resultados = buscar(text_normalizado)
 
-    # Si no hay resultados o hubo error
-    return "❌ No encontramos ese producto. Por favor intenta con otro."
+# Si no hay resultados exactos
+if not resultados:
+    # Intentamos separar tipo de producto y marca
+    palabras = text_normalizado.split()
+    tipo_producto = palabras[0]  # asumimos la primera palabra como tipo
+
+    # Buscar todas las marcas disponibles para ese tipo
+    alternativas = [
+        p for p in INVENTARIO
+        if p["tipo"].lower() == tipo_producto and p.get("stock", 1) > 0
+    ]
+
+    if alternativas:
+        lista = "\n".join(
+            [f"{i+1}. {p['tipo'].title()} {p.get('marca','').title()} - ${p['precio']}" 
+             for i,p in enumerate(alternativas)]
+        )
+        last_results[user] = alternativas
+        return f"❌ No tenemos esa marca. Manejamos estas opciones:\n{lista}\nResponde con el número para agregarlo."
+
+# Si hay resultados exactos
+if resultados:
+    last_results[user] = resultados
+    return lista_productos(resultados)
+
+# Si no hay nada
+return "❌ No encontramos ese producto. Por favor intenta con otro."
 
 def resumen_pedido(user):
     pedido = orders.get(user, [])
