@@ -135,61 +135,61 @@ def process_message(text, user):
         awaiting_confirmation.add(user)
         return resumen_pedido(user)
 
-    # ---- CANTIDAD ----
-if user in pending_product:
-    producto = pending_product[user]
+# ---- CANTIDAD ----
+    if user in pending_product:
+        producto = pending_product[user]
 
-    if producto.get("unidad") == "libra":
-        # Map para reconocer expresiones de libra
-        mapping = {
-            "media libra": 0.5,
-            "una libra": 1,
-            "libra": 1,
-            "libra y media": 1.5,
-            "dos libras": 2
-        }
+        if producto.get("unidad") == "libra":
+            # Map para reconocer expresiones de libra
+            mapping = {
+                "media libra": 0.5,
+                "una libra": 1,
+                "libra": 1,
+                "libra y media": 1.5,
+                "dos libras": 2
+            }
 
-        text_normalizado = text.lower().strip()
-        cantidad = mapping.get(text_normalizado)
+            text_normalizado = text.lower().strip()
+            cantidad = mapping.get(text_normalizado)
 
-        if cantidad is None:
-            try:
-                cantidad = float(text.replace(",", "."))
-                if cantidad <= 0:
-                    raise ValueError
-            except ValueError:
-                return (
-                    "❌ Escribe una cantidad válida.\n"
-                    "0.5 (media libra)\n"
-                    "1 (una libra)\n"
-                    "1.5 (libra y media)\n"
-                    "2 (dos libras)"
-                )
+            if cantidad is None:
+                try:
+                    cantidad = float(text.replace(",", "."))
+                    if cantidad <= 0:
+                        raise ValueError
+                except ValueError:
+                    return (
+                        "❌ Escribe una cantidad válida.\n"
+                        "0.5 (media libra)\n"
+                        "1 (una libra)\n"
+                        "1.5 (libra y media)\n"
+                        "2 (dos libras)"
+                    )
 
-        producto["cantidad"] = cantidad
-        producto["subtotal"] = cantidad * producto.get("precio", 0)
-        orders.setdefault(user, []).append(producto)
-        pending_product.pop(user)
+            producto["cantidad"] = cantidad
+            producto["subtotal"] = cantidad * producto.get("precio", 0)
+            orders.setdefault(user, []).append(producto)
+            pending_product.pop(user)
 
-        return (
-            f"✅ {cantidad} lb de {producto['tipo'].title()} agregado\n"
-            f"💰 Subtotal: ${int(producto['subtotal'])}\n\n"
-            "👉 Escribe otro producto\n"
-            "👉 O escribe *ok* para finalizar"
-        )
+            return (
+                f"✅ {cantidad} lb de {producto['tipo'].title()} agregado\n"
+                f"💰 Subtotal: ${int(producto['subtotal'])}\n\n"
+                "👉 Escribe otro producto\n"
+                "👉 O escribe *ok* para finalizar"
+            )
 
-    # Cantidad por unidades normales
-    if text.isdigit():
-        producto["cantidad"] = int(text)
-        orders.setdefault(user, []).append(producto)
-        pending_product.pop(user)
-        return (
-            "✅ Producto agregado.\n\n"
-            "👉 Escribe otro producto\n"
-            "👉 O escribe *ok* para finalizar"
-        )
+        # Cantidad por unidades normales
+        if text.isdigit():
+            producto["cantidad"] = int(text)
+            orders.setdefault(user, []).append(producto)
+            pending_product.pop(user)
+            return (
+                "✅ Producto agregado.\n\n"
+                "👉 Escribe otro producto\n"
+                "👉 O escribe *ok* para finalizar"
+            )
 
-    return "❌ Escribe un número válido."
+        return "❌ Escribe un número válido."
 
 
     # ---- SELECCIÓN ----
