@@ -181,6 +181,7 @@ def process_message(text, user):
         # Cantidad por unidades normales
         if text.isdigit():
             producto["cantidad"] = int(text)
+            producto["subtotal"] = producto["cantidad"] * producto.get("precio",0)  # <-- agregar esto
             orders.setdefault(user, []).append(producto)
             pending_product.pop(user)
             return (
@@ -244,7 +245,7 @@ def resumen_pedido(user):
         total += subtotal
 
     resumen += f"\n💰 *Total:* ${int(total)}\n\n"
-    resumen += "👉 confirmar\n👉 quitar 0.5 de tomate"
+    resumen += "👉 confirmar\n👉 quitar 0.5 de tomate/ 1 de leche"
     return resumen
 
 # =========================
