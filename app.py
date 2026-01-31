@@ -124,6 +124,8 @@ def process_message(text, user):
                     p["cantidad"] -= cantidad
                     if p.get("unidad") == "libra":
                         p["subtotal"] = p["cantidad"] * p.get("precio",0)
+                    else:
+                        p["subtotal"] = p["cantidad"]*p.get("precio",0)
                 else:
                     pedido.remove(p)
                 break
