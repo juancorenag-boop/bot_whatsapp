@@ -228,18 +228,27 @@ def resumen_pedido(user):
     return resumen
 
 # =========================
-# 🌐 RUTAS (CORRECCIÓN 404)
+# 🌐 RUTAS
 # =========================
 @app.route("/", methods=["GET"])
 def home():
     return "Bot activo 🚀"
 
-@app.route("/chat", methods=["POST"])
+@app.route("/chat", methods=["GET", "POST"])
 def chat():
-    user = request.form.get("From", "web_user")
-    text = request.form.get("Body", "")
-    return process_message(text, user)
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    if request.method == "POST":
+        # mensaje real del usuario
+        user = request.form.get("From", "web_user")
+        text = request.form.get("Body", "")
+        return process_message(text, user)
+    else:  # GET
+        # prueba en navegador
+        return (
+            "Ruta /chat activa 🚀\n"
+            "Para probarla correctamente, envía un POST con los campos:\n"
+            "- From (usuario)\n"
+            "- Body (mensaje)\n\n"
+            "Ejemplo con cURL:\n"
+            "curl -X POST https://tu-bot.onrender.com/chat -d 'From=web_user' -d 'Body=Hola'"
+        )
 
