@@ -1,6 +1,7 @@
 from flask import Flask, request, render_template_string, session
 import re
 
+from inventory import INVENTARIO  # Asegúrate de que inventory.py tenga todos los productos
 from search import buscar
 from responses import saludo, lista_productos
 
@@ -47,11 +48,11 @@ def resumen_para_negocio(user):
 
     for p in pedido:
         if p.get("unidad") == "libra":
-            subtotal = p["subtotal"]
+            subtotal = p.get("subtotal", 0)
             texto += f"- {p['cantidad']} lb {p['tipo'].title()} = ${int(subtotal)}\n"
         else:
-            subtotal = p["precio"] * p["cantidad"]
-            texto += f"- {p['cantidad']} x {p['tipo'].title()} {p['marca'].title()} = ${subtotal}\n"
+            subtotal = p.get("precio", 0) * p.get("cantidad", 0)
+            texto += f"- {p['cantidad']} x {p['tipo'].title()} {p.get('marca','').title()} = ${subtotal}\n"
         total += subtotal
 
     texto += f"\n💰 TOTAL: ${int(total)}"
@@ -72,7 +73,6 @@ def process_message(text, user):
         resumen = resumen_para_negocio(user)
         if resumen:
             send_order_to_business(BUSINESS_PHONE, resumen)
-
         awaiting_change.discard(user)
         orders.pop(user, None)
         return "✅ Pedido registrado correctamente 🙌"
@@ -83,7 +83,6 @@ def process_message(text, user):
             resumen = resumen_para_negocio(user)
             if resumen:
                 send_order_to_business(BUSINESS_PHONE, resumen)
-
             awaiting_payment.discard(user)
             orders.pop(user, None)
             return BANK_INFO
@@ -119,12 +118,12 @@ def process_message(text, user):
 
         pedido = orders.get(user, [])
         for p in pedido:
-            nombre = f"{p['tipo']} {p['marca']}".lower()
+            nombre = f"{p['tipo']} {p.get('marca','')}".lower()
             if producto_txt in nombre:
                 if p["cantidad"] > cantidad:
                     p["cantidad"] -= cantidad
                     if p.get("unidad") == "libra":
-                        p["subtotal"] = p["cantidad"] * p["precio"]
+                        p["subtotal"] = p["cantidad"] * p.get("precio",0)
                 else:
                     pedido.remove(p)
                 break
@@ -155,7 +154,7 @@ def process_message(text, user):
                 )
 
             producto["cantidad"] = libras
-            producto["subtotal"] = libras * producto["precio"]
+            producto["subtotal"] = libras * producto.get("precio",0)
             orders.setdefault(user, []).append(producto)
             pending_product.pop(user)
 
@@ -184,6 +183,8 @@ def process_message(text, user):
         productos = last_results[user]
         if 0 <= idx < len(productos):
             prod = productos[idx]
+            if "subtotal" not in prod:
+                prod["subtotal"] = prod.get("precio",0)
             pending_product[user] = prod.copy()
 
             if prod.get("unidad") == "libra":
@@ -196,15 +197,20 @@ def process_message(text, user):
                     "2 (dos libras)"
                 )
 
-            return f"¿Cuántas unidades de {prod['tipo'].title()} {prod['marca'].title()} deseas?"
+            return f"¿Cuántas unidades de {prod['tipo'].title()} {prod.get('marca','').title()} deseas?"
 
     # ---- BÚSQUEDA ----
-    resultados = buscar(text_lower)
-    if resultados:
-        last_results[user] = resultados
-        return lista_productos(resultados)
+    try:
+        resultados = buscar(text_lower)
+        if resultados:
+            last_results[user] = resultados
+            return lista_productos(resultados)
+    except Exception as e:
+        print(f"Error en búsqueda: {e}")
+        resultados = []
 
-    return "❌ No entendí tu mensaje."
+    # Si no hay resultados o hubo error
+    return "❌ No encontramos ese producto. Por favor intenta con otro."
 
 def resumen_pedido(user):
     pedido = orders.get(user, [])
@@ -215,13 +221,12 @@ def resumen_pedido(user):
     total = 0
 
     for i, p in enumerate(pedido, start=1):
+        subtotal = p.get("subtotal") or p.get("precio",0) * p.get("cantidad",1)
         if p.get("unidad") == "libra":
-            resumen += f"{i}. {p['cantidad']} lb {p['tipo'].title()} — ${int(p['subtotal'])}\n"
-            total += p["subtotal"]
+            resumen += f"{i}. {p['cantidad']} lb {p['tipo'].title()} — ${int(subtotal)}\n"
         else:
-            subtotal = p["precio"] * p["cantidad"]
-            resumen += f"{i}. {p['cantidad']} x {p['tipo'].title()} {p['marca'].title()} — ${subtotal}\n"
-            total += subtotal
+            resumen += f"{i}. {p['cantidad']} x {p['tipo'].title()} {p.get('marca','').title()} — ${int(subtotal)}\n"
+        total += subtotal
 
     resumen += f"\n💰 *Total:* ${int(total)}\n\n"
     resumen += "👉 confirmar\n👉 quitar 0.5 de tomate"
@@ -302,4 +307,3 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
