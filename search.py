@@ -1,4 +1,3 @@
-# search.py
 from inventory import INVENTARIO
 
 def buscar(texto):
@@ -7,8 +6,8 @@ def buscar(texto):
 
     for prod in INVENTARIO:
         tipo = prod["tipo"].lower()
-        marca = prod.get("marca", "").lower()
-        # Coincidencia parcial en tipo o marca (marca vacía no bloquea)
-        if texto in tipo or (marca and texto in marca):
+        # Ignoramos marca y stock, buscamos solo por tipo
+        if texto in tipo:
             resultados.append(prod)
+
     return resultados
