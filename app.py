@@ -1,4 +1,4 @@
-from flask import Flask, request, session, render_template_string
+from flask import Flask, request, session
 import re
 
 from search import buscar
@@ -136,11 +136,10 @@ def process_message(text, user):
         awaiting_confirmation.add(user)
         return resumen_pedido(user)
 
-    # ---- CANTIDAD (UNIDAD O LIBRA) ----
+    # ---- CANTIDAD ----
     if user in pending_product:
         producto = pending_product[user]
 
-        # 👉 PRODUCTO POR LIBRA
         if producto.get("unidad") == "libra":
             try:
                 libras = float(text.replace(",", "."))
@@ -149,7 +148,6 @@ def process_message(text, user):
             except ValueError:
                 return (
                     "❌ Escribe una cantidad válida.\n"
-                    "Ejemplos:\n"
                     "0.5 (media libra)\n"
                     "1 (una libra)\n"
                     "1.5 (libra y media)\n"
@@ -168,7 +166,6 @@ def process_message(text, user):
                 "👉 O escribe *ok* para finalizar"
             )
 
-        # 👉 PRODUCTO POR UNIDAD
         if text.isdigit():
             producto["cantidad"] = int(text)
             orders.setdefault(user, []).append(producto)
@@ -199,10 +196,7 @@ def process_message(text, user):
                     "2 (dos libras)"
                 )
 
-            return (
-                f"¿Cuántas unidades de "
-                f"{prod['tipo'].title()} {prod['marca'].title()} deseas?"
-            )
+            return f"¿Cuántas unidades de {prod['tipo'].title()} {prod['marca'].title()} deseas?"
 
     # ---- BÚSQUEDA ----
     resultados = buscar(text_lower)
@@ -232,3 +226,20 @@ def resumen_pedido(user):
     resumen += f"\n💰 *Total:* ${int(total)}\n\n"
     resumen += "👉 confirmar\n👉 quitar 0.5 de tomate"
     return resumen
+
+# =========================
+# 🌐 RUTAS (CORRECCIÓN 404)
+# =========================
+@app.route("/", methods=["GET"])
+def home():
+    return "Bot activo 🚀"
+
+@app.route("/chat", methods=["POST"])
+def chat():
+    user = request.form.get("From", "web_user")
+    text = request.form.get("Body", "")
+    return process_message(text, user)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+
