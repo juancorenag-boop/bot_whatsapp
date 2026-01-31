@@ -5,11 +5,21 @@ def saludo():
 
 def lista_productos(resultados):
     texto = "🛒 Productos disponibles:\n"
-    for i, p in enumerate(resultados, start=1):
+    contador = 1
+    for p in resultados:
+        stock = p.get("stock", 0)
+        if stock <= 0:
+            continue  # ignoramos productos sin stock
+
         marca = p.get("marca","")
         if marca:
-            texto += f"{i}. {p['tipo'].title()} {marca.title()} - ${p['precio']} (Stock: {p.get('stock', 0)})\n"
+            texto += f"{contador}. {p['tipo'].title()} {marca.title()} - ${p['precio']}\n"
         else:
-            texto += f"{i}. {p['tipo'].title()} - ${p['precio']} (Stock: {p.get('stock', 0)})\n"
+            texto += f"{contador}. {p['tipo'].title()} - ${p['precio']}\n"
+        contador += 1
+
+    if contador == 1:
+        return "❌ No encontramos ese producto con stock disponible."
     texto += "Responde con el número para agregarlo."
     return texto
+
