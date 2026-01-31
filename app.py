@@ -137,7 +137,7 @@ def process_message(text, user):
         awaiting_confirmation.add(user)
         return resumen_pedido(user)
 
-# ---- CANTIDAD ----
+    # ---- CANTIDAD ----
     if user in pending_product:
         producto = pending_product[user]
 
@@ -183,7 +183,7 @@ def process_message(text, user):
         # Cantidad por unidades normales
         if text.isdigit():
             producto["cantidad"] = int(text)
-            producto["subtotal"] = producto["cantidad"] * producto.get("precio",0)  # <-- agregar esto
+            producto["subtotal"] = producto["cantidad"] * producto.get("precio",0)
             orders.setdefault(user, []).append(producto)
             pending_product.pop(user)
             return (
@@ -193,7 +193,6 @@ def process_message(text, user):
             )
 
         return "❌ Escribe un número válido."
-
 
     # ---- SELECCIÓN ----
     if text.isdigit() and user in last_results:
@@ -218,36 +217,36 @@ def process_message(text, user):
             return f"¿Cuántas unidades de {prod['tipo'].title()} {prod.get('marca','').title()} deseas?"
 
     # ---- BÚSQUEDA ----
-text_normalizado = text_lower.strip()
-resultados = buscar(text_normalizado)
+    text_normalizado = text_lower.strip()
+    resultados = buscar(text_normalizado)
 
-# Si no hay resultados exactos
-if not resultados:
-    # Intentamos separar tipo de producto y marca
-    palabras = text_normalizado.split()
-    tipo_producto = palabras[0]  # asumimos la primera palabra como tipo
+    # Si no hay resultados exactos
+    if not resultados:
+        palabras = text_normalizado.split()
+        tipo_producto = palabras[0]  # asumimos la primera palabra como tipo
 
-    # Buscar todas las marcas disponibles para ese tipo
-    alternativas = [
-        p for p in INVENTARIO
-        if p["tipo"].lower() == tipo_producto and p.get("stock", 1) > 0
-    ]
+        # Buscar todas las marcas disponibles para ese tipo con stock
+        alternativas = [
+            p for p in INVENTARIO
+            if p["tipo"].lower() == tipo_producto and p.get("stock", 0) > 0
+        ]
 
-    if alternativas:
-        lista = "\n".join(
-            [f"{i+1}. {p['tipo'].title()} {p.get('marca','').title()} - ${p['precio']}" 
-             for i,p in enumerate(alternativas)]
-        )
-        last_results[user] = alternativas
-        return f"❌ No tenemos esa marca. Manejamos estas opciones:\n{lista}\nResponde con el número para agregarlo."
+        if alternativas:
+            lista = "\n".join(
+                [f"{i+1}. {p['tipo'].title()} {p.get('marca','').title()} - ${p['precio']}" 
+                 for i, p in enumerate(alternativas)]
+            )
+            last_results[user] = alternativas
+            return f"❌ No tenemos esa marca. Manejamos estas opciones:\n{lista}\nResponde con el número para agregarlo."
 
-# Si hay resultados exactos
-if resultados:
-    last_results[user] = resultados
-    return lista_productos(resultados)
+    # Si hay resultados exactos
+    if resultados:
+        last_results[user] = resultados
+        return lista_productos(resultados)
 
-# Si no hay nada
-return "❌ No encontramos ese producto. Por favor intenta con otro."
+    # Si no hay nada
+    return "❌ No encontramos ese producto. Por favor intenta con otro."
+
 
 def resumen_pedido(user):
     pedido = orders.get(user, [])
@@ -276,7 +275,6 @@ def resumen_pedido(user):
 def home():
     return "Bot activo 🚀"
 
-# Página de chat interactivo
 CHAT_HTML = """
 <!DOCTYPE html>
 <html>
@@ -344,3 +342,4 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
