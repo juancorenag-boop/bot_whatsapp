@@ -1,4 +1,4 @@
-from flask import Flask, request, session
+from flask import Flask, request, render_template_string, session
 import re
 
 from search import buscar
@@ -228,27 +228,78 @@ def resumen_pedido(user):
     return resumen
 
 # =========================
-# 🌐 RUTAS
+# 🌐 RUTAS CON CHAT WEB
 # =========================
 @app.route("/", methods=["GET"])
 def home():
     return "Bot activo 🚀"
 
+# Página de chat interactivo
+CHAT_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat Bot</title>
+    <style>
+        body { font-family: Arial; margin: 20px; }
+        #chat-box { border:1px solid #ccc; padding:10px; height:400px; overflow-y:auto; margin-bottom:10px; }
+        #user-input { width:80%; padding:10px; }
+        #send-btn { padding:10px; }
+        .user-msg { color: blue; }
+        .bot-msg { color: green; }
+    </style>
+</head>
+<body>
+    <h2>Chat Bot</h2>
+    <div id="chat-box"></div>
+    <input type="text" id="user-input" placeholder="Escribe un mensaje"/>
+    <button id="send-btn">Enviar</button>
+
+    <script>
+        const chatBox = document.getElementById("chat-box");
+        const input = document.getElementById("user-input");
+        const button = document.getElementById("send-btn");
+
+        function appendMessage(text, cls) {
+            const p = document.createElement("p");
+            p.className = cls;
+            p.textContent = text;
+            chatBox.appendChild(p);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        button.onclick = () => {
+            const msg = input.value.trim();
+            if(!msg) return;
+            appendMessage("Tú: " + msg, "user-msg");
+            input.value = "";
+
+            fetch("/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: `From=web_user&Body=${encodeURIComponent(msg)}`
+            })
+            .then(res => res.text())
+            .then(text => appendMessage("Bot: " + text, "bot-msg"));
+        }
+
+        input.addEventListener("keypress", function(e){
+            if(e.key === "Enter") button.click();
+        });
+    </script>
+</body>
+</html>
+"""
+
 @app.route("/chat", methods=["GET", "POST"])
 def chat():
     if request.method == "POST":
-        # mensaje real del usuario
         user = request.form.get("From", "web_user")
         text = request.form.get("Body", "")
         return process_message(text, user)
-    else:  # GET
-        # prueba en navegador
-        return (
-            "Ruta /chat activa 🚀\n"
-            "Para probarla correctamente, envía un POST con los campos:\n"
-            "- From (usuario)\n"
-            "- Body (mensaje)\n\n"
-            "Ejemplo con cURL:\n"
-            "curl -X POST https://tu-bot.onrender.com/chat -d 'From=web_user' -d 'Body=Hola'"
-        )
+    else:
+        return render_template_string(CHAT_HTML)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
 
