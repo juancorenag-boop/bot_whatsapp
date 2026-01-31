@@ -3,23 +3,16 @@
 def saludo():
     return "👋 Bienvenido a la tienda Escribe el producto que buscas: Ej: arroz, leche, tomate"
 
-def lista_productos(resultados):
-    texto = "🛒 Productos disponibles:\n"
-    contador = 1
-    for p in resultados:
-        stock = p.get("stock", 0)
-        if stock <= 0:
-            continue  # ignoramos productos sin stock
-
-        marca = p.get("marca","")
-        if marca:
-            texto += f"{contador}. {p['tipo'].title()} {marca.title()} - ${p['precio']}\n"
-        else:
-            texto += f"{contador}. {p['tipo'].title()} - ${p['precio']}\n"
-        contador += 1
-
-    if contador == 1:
+def lista_productos(productos):
+    # Filtrar productos con stock > 0
+    disponibles = [p for p in productos if p.get("stock", 0) > 0]
+    if not disponibles:
         return "❌ No encontramos ese producto con stock disponible."
+
+    texto = "🛒 Productos disponibles:\n"
+    for i, p in enumerate(disponibles, start=1):
+        marca = f" {p.get('marca','')}" if p.get('marca') else ""
+        texto += f"{i}. {p['tipo'].title()}{marca} - ${p['precio']}\n"
     texto += "Responde con el número para agregarlo."
     return texto
 
