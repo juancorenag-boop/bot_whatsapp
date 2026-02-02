@@ -1,7 +1,7 @@
 from flask import Flask, request, render_template_string, session
 import re
 
-from inventory import INVENTARIO  # Asegúrate de que inventory.py tenga todos los productos
+from inventory import INVENTARIO
 from search import buscar
 from responses import saludo, lista_productos
 
@@ -18,6 +18,8 @@ awaiting_confirmation = set()
 awaiting_address = set()
 awaiting_payment = set()
 awaiting_change = set()
+awaiting_comments = set()
+order_comments = {}
 
 BANK_INFO = (
     "🏦 *Datos para transferencia:*\n\n"
@@ -26,6 +28,12 @@ BANK_INFO = (
     "Tipo: Ahorros\n"
     "Nombre: Tienda XYZ\n\n"
     "Cuando realices el pago envía el comprobante 📸"
+)
+
+PROMO_MSG = (
+    "\n\n📣 *¿Te gustaría este sistema para tu negocio?*\n"
+    "Ahorra tiempo y evita confusiones entre pedidos.\n"
+    "📞 Contáctanos: +57 3216642926"
 )
 
 # =========================
@@ -55,7 +63,10 @@ def resumen_para_negocio(user):
             texto += f"- {p['cantidad']} x {p['tipo'].title()} {p.get('marca','').title()} = ${subtotal}\n"
         total += subtotal
 
-    texto += f"\n💰 TOTAL: ${int(total)}"
+    if user in order_comments:
+        texto += f"\n📝 Comentarios:\n{order_comments[user]}"
+
+    texto += f"\n\n💰 TOTAL: ${int(total)}"
     return texto
 
 # =========================
@@ -68,24 +79,30 @@ def process_message(text, user):
     if text_lower in ["hola", "buenas", "hello", "menu", "inicio"]:
         return saludo()
 
-    # ---- CAMBIO ----
-    if user in awaiting_change:
+    # ---- COMENTARIOS ----
+    if user in awaiting_comments:
+        order_comments[user] = text
+        awaiting_comments.discard(user)
+
         resumen = resumen_para_negocio(user)
         if resumen:
             send_order_to_business(BUSINESS_PHONE, resumen)
-        awaiting_change.discard(user)
+
         orders.pop(user, None)
-        return "✅ Pedido registrado correctamente 🙌"
+        return "✅ Pedido registrado correctamente 🙌" + PROMO_MSG
+
+    # ---- CAMBIO ----
+    if user in awaiting_change:
+        awaiting_change.discard(user)
+        awaiting_comments.add(user)
+        return "📝 ¿Deseas agregar algún comentario a tu pedido? (opcional)"
 
     # ---- MÉTODO DE PAGO ----
     if user in awaiting_payment:
         if text_lower in ["transferencia", "1"]:
-            resumen = resumen_para_negocio(user)
-            if resumen:
-                send_order_to_business(BUSINESS_PHONE, resumen)
             awaiting_payment.discard(user)
-            orders.pop(user, None)
-            return BANK_INFO
+            awaiting_comments.add(user)
+            return BANK_INFO + "\n\n📝 ¿Deseas agregar algún comentario a tu pedido? (opcional)"
 
         if text_lower in ["efectivo", "2"]:
             awaiting_payment.discard(user)
@@ -122,10 +139,7 @@ def process_message(text, user):
             if producto_txt in nombre:
                 if p["cantidad"] > cantidad:
                     p["cantidad"] -= cantidad
-                    if p.get("unidad") == "libra":
-                        p["subtotal"] = p["cantidad"] * p.get("precio",0)
-                    else:
-                        p["subtotal"] = p["cantidad"]*p.get("precio",0)
+                    p["subtotal"] = p["cantidad"] * p.get("precio",0)
                 else:
                     pedido.remove(p)
                 break
@@ -142,7 +156,6 @@ def process_message(text, user):
         producto = pending_product[user]
 
         if producto.get("unidad") == "libra":
-            # Map para reconocer expresiones de libra
             mapping = {
                 "media libra": 0.5,
                 "una libra": 1,
@@ -151,22 +164,12 @@ def process_message(text, user):
                 "dos libras": 2
             }
 
-            text_normalizado = text.lower().strip()
-            cantidad = mapping.get(text_normalizado)
-
+            cantidad = mapping.get(text_lower)
             if cantidad is None:
                 try:
                     cantidad = float(text.replace(",", "."))
-                    if cantidad <= 0:
-                        raise ValueError
-                except ValueError:
-                    return (
-                        "❌ Escribe una cantidad válida.\n"
-                        "0.5 (media libra)\n"
-                        "1 (una libra)\n"
-                        "1.5 (libra y media)\n"
-                        "2 (dos libras)"
-                    )
+                except:
+                    return "❌ Cantidad inválida."
 
             producto["cantidad"] = cantidad
             producto["subtotal"] = cantidad * producto.get("precio", 0)
@@ -176,21 +179,15 @@ def process_message(text, user):
             return (
                 f"✅ {cantidad} lb de {producto['tipo'].title()} agregado\n"
                 f"💰 Subtotal: ${int(producto['subtotal'])}\n\n"
-                "👉 Escribe otro producto\n"
-                "👉 O escribe *ok* para finalizar"
+                "👉 Escribe otro producto\n👉 O escribe *ok*"
             )
 
-        # Cantidad por unidades normales
         if text.isdigit():
             producto["cantidad"] = int(text)
             producto["subtotal"] = producto["cantidad"] * producto.get("precio",0)
             orders.setdefault(user, []).append(producto)
             pending_product.pop(user)
-            return (
-                "✅ Producto agregado.\n\n"
-                "👉 Escribe otro producto\n"
-                "👉 O escribe *ok* para finalizar"
-            )
+            return "✅ Producto agregado.\n👉 Otro producto o *ok*"
 
         return "❌ Escribe un número válido."
 
@@ -200,53 +197,20 @@ def process_message(text, user):
         productos = last_results[user]
         if 0 <= idx < len(productos):
             prod = productos[idx]
-            if "subtotal" not in prod:
-                prod["subtotal"] = prod.get("precio",0)
             pending_product[user] = prod.copy()
 
             if prod.get("unidad") == "libra":
-                return (
-                    f"💰 Precio: ${prod['precio']} por libra\n\n"
-                    "¿Cuántas libras necesitas?\n"
-                    "0.5 (media libra)\n"
-                    "1 (una libra)\n"
-                    "1.5 (libra y media)\n"
-                    "2 (dos libras)"
-                )
+                return "¿Cuántas libras necesitas?"
 
-            return f"¿Cuántas unidades de {prod['tipo'].title()} {prod.get('marca','').title()} deseas?"
+            return f"¿Cuántas unidades de {prod['tipo'].title()} deseas?"
 
     # ---- BÚSQUEDA ----
-    text_normalizado = text_lower.strip()
-    resultados = buscar(text_normalizado)
-
-    # Si no hay resultados exactos
-    if not resultados:
-        palabras = text_normalizado.split()
-        tipo_producto = palabras[0]  # asumimos la primera palabra como tipo
-
-        # Buscar todas las marcas disponibles para ese tipo con stock
-        alternativas = [
-            p for p in INVENTARIO
-            if p["tipo"].lower() == tipo_producto and p.get("stock", 0) > 0
-        ]
-
-        if alternativas:
-            lista = "\n".join(
-                [f"{i+1}. {p['tipo'].title()} {p.get('marca','').title()} - ${p['precio']}" 
-                 for i, p in enumerate(alternativas)]
-            )
-            last_results[user] = alternativas
-            return f"❌ No tenemos esa marca. Manejamos estas opciones:\n{lista}\nResponde con el número para agregarlo."
-
-    # Si hay resultados exactos
+    resultados = buscar(text_lower)
     if resultados:
         last_results[user] = resultados
         return lista_productos(resultados)
 
-    # Si no hay nada
-    return "❌ No encontramos ese producto. Por favor intenta con otro."
-
+    return "❌ No encontramos ese producto."
 
 def resumen_pedido(user):
     pedido = orders.get(user, [])
@@ -257,88 +221,26 @@ def resumen_pedido(user):
     total = 0
 
     for i, p in enumerate(pedido, start=1):
-        subtotal = p.get("subtotal") or p.get("precio",0) * p.get("cantidad",1)
-        if p.get("unidad") == "libra":
-            resumen += f"{i}. {p['cantidad']} lb {p['tipo'].title()} — ${int(subtotal)}\n"
-        else:
-            resumen += f"{i}. {p['cantidad']} x {p['tipo'].title()} {p.get('marca','').title()} — ${int(subtotal)}\n"
+        subtotal = p.get("subtotal",0)
+        resumen += f"{i}. {p['cantidad']} {p['tipo'].title()} — ${int(subtotal)}\n"
         total += subtotal
 
-    resumen += f"\n💰 *Total:* ${int(total)}\n\n"
-    resumen += "👉 confirmar\n👉 quitar 0.5 de tomate/ 1 de leche"
+    resumen += f"\n💰 Total: ${int(total)}\n\n👉 confirmar"
     return resumen
 
 # =========================
-# 🌐 RUTAS CON CHAT WEB
+# 🌐 CHAT WEB
 # =========================
 @app.route("/", methods=["GET"])
 def home():
     return "Bot activo 🚀"
 
-CHAT_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Chat Bot</title>
-    <style>
-        body { font-family: Arial; margin: 20px; }
-        #chat-box { border:1px solid #ccc; padding:10px; height:400px; overflow-y:auto; margin-bottom:10px; }
-        #user-input { width:80%; padding:10px; }
-        #send-btn { padding:10px; }
-        .user-msg { color: blue; }
-        .bot-msg { color: green; }
-    </style>
-</head>
-<body>
-    <h2>Chat Bot</h2>
-    <div id="chat-box"></div>
-    <input type="text" id="user-input" placeholder="Escribe un mensaje"/>
-    <button id="send-btn">Enviar</button>
-
-    <script>
-        const chatBox = document.getElementById("chat-box");
-        const input = document.getElementById("user-input");
-        const button = document.getElementById("send-btn");
-
-        function appendMessage(text, cls) {
-            const p = document.createElement("p");
-            p.className = cls;
-            p.textContent = text;
-            chatBox.appendChild(p);
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
-
-        button.onclick = () => {
-            const msg = input.value.trim();
-            if(!msg) return;
-            appendMessage("Tú: " + msg, "user-msg");
-            input.value = "";
-
-            fetch("/chat", {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: `From=web_user&Body=${encodeURIComponent(msg)}`
-            })
-            .then(res => res.text())
-            .then(text => appendMessage("Bot: " + text, "bot-msg"));
-        }
-
-        input.addEventListener("keypress", function(e){
-            if(e.key === "Enter") button.click();
-        });
-    </script>
-</body>
-</html>
-"""
-
-@app.route("/chat", methods=["GET", "POST"])
+@app.route("/chat", methods=["POST"])
 def chat():
-    if request.method == "POST":
-        user = request.form.get("From", "web_user")
-        text = request.form.get("Body", "")
-        return process_message(text, user)
-    else:
-        return render_template_string(CHAT_HTML)
+    user = request.form.get("From", "web_user")
+    text = request.form.get("Body", "")
+    return process_message(text, user)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
