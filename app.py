@@ -275,11 +275,14 @@ def resumen_pedido(user):
 def home():
     return "Bot activo 🚀"
 
-@app.route("/chat", methods=["POST"])
+@app.route("/chat", methods=["GET", "POST"])
 def chat():
-    user = request.form.get("From", "web_user")
-    text = request.form.get("Body", "")
-    return process_message(text, user)
+    if request.method == "POST":
+        user = request.form.get("From", "web_user")
+        text = request.form.get("Body", "")
+        return process_message(text, user)
+    else:
+        return render_template_string(CHAT_HTML)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
