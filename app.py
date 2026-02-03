@@ -12,7 +12,7 @@ app.secret_key = "chat-dev-secret"
 # =========================
 # 🔐 WHATSAPP CLOUD API
 # =========================
-VERIFY_TOKEN = "julia0111"  # mismo que en Meta
+VERIFY_TOKEN = "julia0111"
 WHATSAPP_TOKEN = "EAAKqZBJod3WQBQsQk9fRboJ3XF6Tgomjvz70AWVHorFEVxQgrj4zCEkvr3CoNJ3BoXuhlKAZBHEZBN4mTCI4MbybjmbximJvBFYJBZCV8uRQHLBwG0nIpzR2atX1wemTZAWWjqCUYIQBS58OZAPpZCOw5zLtss7IIHz0UIdWovCH8itGwpazgX9ZCJcpJs8E8U0ZC2giSW7Ato05ZAFDWHYuDyucjxmxzK0Y2QwRJeXAI2Mmuuw4Qmdmz0f0fZAm6f7KoB5zDFnSPIvJVq1xJcVNaW3FYVt"
 PHONE_NUMBER_ID = "1020609241124975"
 
@@ -30,6 +30,23 @@ awaiting_payment = set()
 awaiting_change = set()
 awaiting_comments = set()
 order_comments = {}
+
+# ➕ NUEVO: palabras para quitar productos
+QUITAR_PALABRAS = ["quitar", "eliminar", "borra", "sacar"]
+
+# ➕ NUEVO: cantidades en libras
+CANTIDADES_LB = {
+    "media libra": 0.5,
+    "media lb": 0.5,
+    "una libra": 1,
+    "1 libra": 1,
+    "1 lb": 1,
+    "libra y media": 1.5,
+    "1.5 lb": 1.5,
+    "dos libras": 2,
+    "2 libras": 2,
+    "2 lb": 2
+}
 
 BANK_INFO = (
     "🏦 *Datos para transferencia:*\n\n"
@@ -82,10 +99,19 @@ def resumen_para_negocio(user):
 # 🧠 LÓGICA DEL BOT
 # =========================
 def process_message(text, user):
-    text_lower = text.lower().strip()
+    text_lower = text.lower().strip()  # ➕ ya normaliza mayúsculas
 
     if text_lower in ["hola", "buenas", "menu", "inicio"]:
         return saludo()
+
+    # ➕ NUEVO: quitar productos
+    if any(p in text_lower for p in QUITAR_PALABRAS):
+        pedido = orders.get(user, [])
+        for p in pedido:
+            if p["tipo"].lower() in text_lower:
+                pedido.remove(p)
+                return f"🗑️ Quité *{p['tipo']}* de tu pedido."
+        return "❌ Ese producto no está en tu pedido."
 
     if user in awaiting_comments:
         order_comments[user] = text
@@ -130,13 +156,25 @@ def process_message(text, user):
 
     if user in pending_product:
         producto = pending_product[user]
-        if text.isdigit():
+
+        # ➕ NUEVO: detectar cantidades en libras
+        cantidad = None
+        for k, v in CANTIDADES_LB.items():
+            if k in text_lower:
+                cantidad = v
+                break
+
+        if cantidad is not None:
+            producto["cantidad"] = cantidad
+        elif text.isdigit():
             producto["cantidad"] = int(text)
-            producto["subtotal"] = producto["cantidad"] * producto.get("precio", 0)
-            orders.setdefault(user, []).append(producto)
-            pending_product.pop(user)
-            return "✅ Producto agregado.\n👉 Otro producto o *ok*"
-        return "❌ Cantidad inválida."
+        else:
+            return "❌ Cantidad inválida."
+
+        producto["subtotal"] = producto["cantidad"] * producto.get("precio", 0)
+        orders.setdefault(user, []).append(producto)
+        pending_product.pop(user)
+        return "✅ Producto agregado.\n👉 Otro producto o *ok*"
 
     if text.isdigit() and user in last_results:
         idx = int(text) - 1
@@ -221,4 +259,3 @@ def enviar_whatsapp(to, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
