@@ -1,5 +1,6 @@
 from flask import Flask, request, render_template_string, session
 import re
+import requests
 
 from inventory import INVENTARIO
 from search import buscar
@@ -8,9 +9,18 @@ from responses import saludo, lista_productos
 app = Flask(__name__)
 app.secret_key = "chat-dev-secret"
 
+# =========================
+# 🔐 WHATSAPP CLOUD API
+# =========================
+VERIFY_TOKEN = "julia0111"  # mismo que en Meta
+WHATSAPP_TOKEN = "EAAKqZBJod3WQBQm8XqDsmFZAXdieDBJnzMucKSlJzvZB3wAKZClXjGKHfBzaUDGaBxCaaZCIKrsykm0US5ZBlVhSdmcxa2iKW6wAh2hlbb0HZAPgZAKHcWdUCLG5qsrz7zLqnCZCbT1VO09eg5MctZCB2mZC0ZC6zpPvHyh0LjfaKwBAp1v5cNSjNCJmHalLYLdmZC4URS0XJN5ZC3sXnCmCXKfHFKAOaYo89iBlZCZCKIZAOzyERJhz3RbGzmCQrfkj9y0HwVQQivjbHGA9tKZAFP33FpKKMaobVq"
+PHONE_NUMBER_ID = "1020609241124975"
+
 BUSINESS_PHONE = "+573216642926"
 
+# =========================
 # ===== MEMORIA =====
+# =========================
 orders = {}
 last_results = {}
 pending_product = {}
@@ -37,7 +47,7 @@ PROMO_MSG = (
 )
 
 # =========================
-# 📤 ENVÍO SIMULADO
+# 📤 ENVÍO SIMULADO NEGOCIO
 # =========================
 def send_order_to_business(phone, resumen):
     print("\n==============================")
@@ -46,6 +56,9 @@ def send_order_to_business(phone, resumen):
     print(resumen)
     print("==============================\n")
 
+# =========================
+# 📦 RESUMEN
+# =========================
 def resumen_para_negocio(user):
     pedido = orders.get(user, [])
     if not pedido:
@@ -55,12 +68,8 @@ def resumen_para_negocio(user):
     total = 0
 
     for p in pedido:
-        if p.get("unidad") == "libra":
-            subtotal = p.get("subtotal", 0)
-            texto += f"- {p['cantidad']} lb {p['tipo'].title()} = ${int(subtotal)}\n"
-        else:
-            subtotal = p.get("precio", 0) * p.get("cantidad", 0)
-            texto += f"- {p['cantidad']} x {p['tipo'].title()} {p.get('marca','').title()} = ${subtotal}\n"
+        subtotal = p.get("subtotal", 0)
+        texto += f"- {p['cantidad']} {p['tipo'].title()} = ${int(subtotal)}\n"
         total += subtotal
 
     if user in order_comments:
@@ -75,11 +84,9 @@ def resumen_para_negocio(user):
 def process_message(text, user):
     text_lower = text.lower().strip()
 
-    # ---- SALUDO ----
-    if text_lower in ["hola", "buenas", "hello", "menu", "inicio"]:
+    if text_lower in ["hola", "buenas", "menu", "inicio"]:
         return saludo()
 
-    # ---- COMENTARIOS ----
     if user in awaiting_comments:
         order_comments[user] = text
         awaiting_comments.discard(user)
@@ -91,120 +98,53 @@ def process_message(text, user):
         orders.pop(user, None)
         return "✅ Pedido registrado correctamente 🙌" + PROMO_MSG
 
-    # ---- CAMBIO ----
     if user in awaiting_change:
         awaiting_change.discard(user)
         awaiting_comments.add(user)
-        return "📝 ¿Deseas agregar algún comentario a tu pedido? (opcional)"
+        return "📝 ¿Deseas agregar algún comentario a tu pedido?"
 
-    # ---- MÉTODO DE PAGO ----
     if user in awaiting_payment:
         if text_lower in ["transferencia", "1"]:
             awaiting_payment.discard(user)
             awaiting_comments.add(user)
-            return BANK_INFO + "\n\n📝 ¿Deseas agregar algún comentario a tu pedido? (opcional)"
-
+            return BANK_INFO + "\n\n📝 ¿Deseas agregar algún comentario?"
         if text_lower in ["efectivo", "2"]:
             awaiting_payment.discard(user)
             awaiting_change.add(user)
-            return "💵 ¿Necesitas cambio?\nEj: tengo 50.000 o escribe *exacto*"
-
+            return "💵 ¿Necesitas cambio?"
         return "❌ Opción inválida."
 
-    # ---- DIRECCIÓN ----
     if user in awaiting_address:
         awaiting_address.discard(user)
         awaiting_payment.add(user)
-        return (
-            "💳 ¿Cuál será tu método de pago?\n"
-            "1️⃣ Transferencia\n"
-            "2️⃣ Efectivo"
-        )
+        return "💳 Método de pago:\n1️⃣ Transferencia\n2️⃣ Efectivo"
 
-    # ---- CONFIRMAR ----
     if text_lower == "confirmar" and user in awaiting_confirmation:
         awaiting_confirmation.discard(user)
         awaiting_address.add(user)
-        return "📍 Por favor escribe la dirección de entrega"
+        return "📍 Escribe la dirección de entrega"
 
-    # ---- QUITAR PRODUCTO ----
-    match_quitar = re.match(r"quitar\s+([\d\.]+)\s+de\s+(.+)", text_lower)
-    if match_quitar and user in awaiting_confirmation:
-        cantidad = float(match_quitar.group(1))
-        producto_txt = match_quitar.group(2)
-
-        pedido = orders.get(user, [])
-        for p in pedido:
-            nombre = f"{p['tipo']} {p.get('marca','')}".lower()
-            if producto_txt in nombre:
-                if p["cantidad"] > cantidad:
-                    p["cantidad"] -= cantidad
-                    p["subtotal"] = p["cantidad"] * p.get("precio",0)
-                else:
-                    pedido.remove(p)
-                break
-
-        return resumen_pedido(user)
-
-    # ---- MOSTRAR RESUMEN ----
     if text_lower == "ok":
         awaiting_confirmation.add(user)
         return resumen_pedido(user)
 
-    # ---- CANTIDAD ----
     if user in pending_product:
         producto = pending_product[user]
-
-        if producto.get("unidad") == "libra":
-            mapping = {
-                "media libra": 0.5,
-                "una libra": 1,
-                "libra": 1,
-                "libra y media": 1.5,
-                "dos libras": 2
-            }
-
-            cantidad = mapping.get(text_lower)
-            if cantidad is None:
-                try:
-                    cantidad = float(text.replace(",", "."))
-                except:
-                    return "❌ Cantidad inválida."
-
-            producto["cantidad"] = cantidad
-            producto["subtotal"] = cantidad * producto.get("precio", 0)
-            orders.setdefault(user, []).append(producto)
-            pending_product.pop(user)
-
-            return (
-                f"✅ {cantidad} lb de {producto['tipo'].title()} agregado\n"
-                f"💰 Subtotal: ${int(producto['subtotal'])}\n\n"
-                "👉 Escribe otro producto\n👉 O escribe *ok*"
-            )
-
         if text.isdigit():
             producto["cantidad"] = int(text)
-            producto["subtotal"] = producto["cantidad"] * producto.get("precio",0)
+            producto["subtotal"] = producto["cantidad"] * producto.get("precio", 0)
             orders.setdefault(user, []).append(producto)
             pending_product.pop(user)
             return "✅ Producto agregado.\n👉 Otro producto o *ok*"
+        return "❌ Cantidad inválida."
 
-        return "❌ Escribe un número válido."
-
-    # ---- SELECCIÓN ----
     if text.isdigit() and user in last_results:
         idx = int(text) - 1
         productos = last_results[user]
         if 0 <= idx < len(productos):
-            prod = productos[idx]
-            pending_product[user] = prod.copy()
+            pending_product[user] = productos[idx].copy()
+            return "¿Cuántas unidades deseas?"
 
-            if prod.get("unidad") == "libra":
-                return "¿Cuántas libras necesitas?"
-
-            return f"¿Cuántas unidades de {prod['tipo'].title()} deseas?"
-
-    # ---- BÚSQUEDA ----
     resultados = buscar(text_lower)
     if resultados:
         last_results[user] = resultados
@@ -220,8 +160,8 @@ def resumen_pedido(user):
     resumen = "🧾 *Resumen de tu pedido:*\n\n"
     total = 0
 
-    for i, p in enumerate(pedido, start=1):
-        subtotal = p.get("subtotal",0)
+    for i, p in enumerate(pedido, 1):
+        subtotal = p.get("subtotal", 0)
         resumen += f"{i}. {p['cantidad']} {p['tipo'].title()} — ${int(subtotal)}\n"
         total += subtotal
 
@@ -229,76 +169,56 @@ def resumen_pedido(user):
     return resumen
 
 # =========================
-# 🌐 CHAT WEB
+# 🌐 WEB CHAT
 # =========================
 @app.route("/", methods=["GET"])
 def home():
     return "Bot activo 🚀"
 
-@app.route("/chat", methods=["GET", "POST"])
+@app.route("/chat", methods=["POST"])
 def chat():
-    if request.method == "POST":
-        user = request.form.get("From", "web_user")
-        text = request.form.get("Body", "")
-        return process_message(text, user)
-    else:
-        return render_template_string(CHAT_HTML)
+    user = request.form.get("From", "web_user")
+    text = request.form.get("Body", "")
+    return process_message(text, user)
+
+# =========================
+# 📲 WHATSAPP WEBHOOK
+# =========================
+@app.route("/webhook", methods=["GET", "POST"])
+def whatsapp_webhook():
+    if request.method == "GET":
+        if request.args.get("hub.verify_token") == VERIFY_TOKEN:
+            return request.args.get("hub.challenge")
+        return "Forbidden", 403
+
+    data = request.json
+    try:
+        msg = data["entry"][0]["changes"][0]["value"]["messages"][0]
+        user = msg["from"]
+        text = msg["text"]["body"]
+
+        respuesta = process_message(text, user)
+        enviar_whatsapp(user, respuesta)
+
+    except Exception as e:
+        print("ERROR:", e)
+
+    return "OK", 200
+
+def enviar_whatsapp(to, text):
+    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {"body": text}
+    }
+    requests.post(url, headers=headers, json=payload)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
 
-CHAT_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Chat Bot</title>
-    <style>
-        body { font-family: Arial; margin: 20px; }
-        #chat-box { border:1px solid #ccc; padding:10px; height:400px; overflow-y:auto; margin-bottom:10px; }
-        #user-input { width:80%; padding:10px; }
-        #send-btn { padding:10px; }
-        .user-msg { color: blue; }
-        .bot-msg { color: green; }
-    </style>
-</head>
-<body>
-    <h2>Chat Bot</h2>
-    <div id="chat-box"></div>
-    <input type="text" id="user-input" placeholder="Escribe un mensaje"/>
-    <button id="send-btn">Enviar</button>
-
-    <script>
-        const chatBox = document.getElementById("chat-box");
-        const input = document.getElementById("user-input");
-        const button = document.getElementById("send-btn");
-
-        function appendMessage(text, cls) {
-            const p = document.createElement("p");
-            p.className = cls;
-            p.textContent = text;
-            chatBox.appendChild(p);
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
-
-        button.onclick = () => {
-            const msg = input.value.trim();
-            if(!msg) return;
-            appendMessage("Tú: " + msg, "user-msg");
-            input.value = "";
-
-            fetch("/chat", {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: `From=web_user&Body=${encodeURIComponent(msg)}`
-            })
-            .then(res => res.text())
-            .then(text => appendMessage("Bot: " + text, "bot-msg"));
-        }
-
-        input.addEventListener("keypress", function(e){
-            if(e.key === "Enter") button.click();
-        });
-    </script>
-</body>
-</html>
-"""
