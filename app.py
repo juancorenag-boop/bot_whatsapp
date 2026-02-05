@@ -99,7 +99,7 @@ def resumen_para_negocio(user):
 # 🧠 LÓGICA DEL BOT
 # =========================
 def process_message(text, user):
-    text_lower = text.lower().strip()  # ➕ ya normaliza mayúsculas
+    text_lower = text.lower().strip()
 
     if not text_lower:
         return saludo()
@@ -107,27 +107,42 @@ def process_message(text, user):
     if text_lower in ["hola", "buenas", "menu", "inicio"]:
         return saludo()
 
-    # ➕ NUEVO: quitar productos
-if any(p in text_lower for p in QUITAR_PALABRAS):
-    pedido = orders.get(user, [])
-    cant_quitar, unidad_quitar = extraer_cantidad(text_lower)
+        # ➕ NUEVO: quitar productos
+    if any(p in text_lower for p in QUITAR_PALABRAS):
+        pedido = orders.get(user, [])
+        if not pedido:
+            return "🛒 Tu pedido está vacío."
 
-    for p in pedido:
-        if p["tipo"].lower() in text_lower:
+        cant_quitar, unidad_quitar = extraer_cantidad(text_lower)
 
-            # validar unidad compatible
-            if p["unidad"] != unidad_quitar:
-                return f"⚠️ La *{p['tipo']}* se maneja en {p['unidad']}."
+        for p in pedido:
+            if p["tipo"].lower() in text_lower:
 
-            p["cantidad"] -= cant_quitar
+                # validar unidad
+                unidad_producto = p.get("unidad", "unidad")
+                if unidad_producto != unidad_quitar:
+                    return f"⚠️ *{p['tipo']}* se maneja en {unidad_producto}."
 
-            if p["cantidad"] <= 0:
-                pedido.remove(p)
-                return f"🗑️ Quité completamente *{p['tipo']}* del pedido."
+                p["cantidad"] -= cant_quitar
 
-            return f"➖ Quité *{cant_quitar} {p['unidad']}* de *{p['tipo']}*."
+                if p["cantidad"] <= 0:
+                    pedido.remove(p)
+                    msg = f"🗑️ Quité completamente *{p['tipo']}* del pedido."
+                else:
+                    p["subtotal"] = p["cantidad"] * p.get("precio", 0)
+                    msg = f"➖ Quité *{cant_quitar} {unidad_producto}* de *{p['tipo']}*."
 
-    return "❌ Ese producto no está en tu pedido."
+                # 🔄 mostrar resumen actualizado
+                resumen = resumen_pedido(user)
+
+                # 📦 avisar al negocio
+                resumen_negocio = resumen_para_negocio(user)
+                if resumen_negocio:
+                    send_order_to_business(BUSINESS_PHONE, resumen_negocio)
+
+                return msg + "\n\n" + resumen
+
+        return "❌ Ese producto no está en tu pedido."
 
     if user in awaiting_comments:
         order_comments[user] = text
