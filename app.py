@@ -101,6 +101,9 @@ def resumen_para_negocio(user):
 def process_message(text, user):
     text_lower = text.lower().strip()  # ➕ ya normaliza mayúsculas
 
+    if no text_lower:
+    return saludo()
+
     if text_lower in ["hola", "buenas", "menu", "inicio"]:
         return saludo()
 
@@ -236,9 +239,9 @@ def whatsapp_webhook():
     try:
         msg = data["entry"][0]["changes"][0]["value"]["messages"][0]
         user = msg["from"]
-        text = msg["text"]["body"]
+        text = msg.get("text", {}).get("body", "")
 
-        respuesta = process_message(text, user)
+        respuesta = process_message(text or "Hola", user)
         enviar_whatsapp(user, respuesta)
 
     except Exception as e:
