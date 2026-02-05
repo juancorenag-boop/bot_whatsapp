@@ -106,7 +106,10 @@ def process_message(text, user):
 
     # ➕ NUEVO: quitar productos
     if any(p in text_lower for p in QUITAR_PALABRAS):
-        pedido = orders.get(user, [])
+        if user not in orders or not orders [user]:
+            return "🛒 Aún no tienes productos en tu pedido."
+            
+        pedido = orders[user]
         for p in pedido:
             if p["tipo"].lower() in text_lower:
                 pedido.remove(p)
