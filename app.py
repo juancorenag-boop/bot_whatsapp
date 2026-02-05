@@ -101,7 +101,7 @@ def resumen_para_negocio(user):
 def process_message(text, user):
     text_lower = text.lower().strip()  # ➕ ya normaliza mayúsculas
 
-    if no text_lower:
+    if not text_lower:
     return saludo()
 
     if text_lower in ["hola", "buenas", "menu", "inicio"]:
