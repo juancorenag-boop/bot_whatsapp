@@ -13,7 +13,7 @@ app.secret_key = "chat-dev-secret"
 # 🔐 WHATSAPP CLOUD API
 # =========================
 VERIFY_TOKEN = "julia0111"
-WHATSAPP_TOKEN = "EAAKqZBJod3WQBQiRxrOP8T79kzR9ZCkK6ZBcRQ02MdoOfpwED7LRkCga9erH6JYzqoDCBgjxQny63BRiwEXTaO7xz0OF5GE8mz3zRvT6TmqK2NMdZCvIB2qXxoSZAYkweNWXxMiZAWSk9ikIjSgiNyZAgh12E8JTlogSrWrVZAFOxjXlsCLxyQuZBOQshsLKCbt7op4W8M0DqvhvZAIrOqgV1blD8FLZBXxTH1CwBo1heyxS2YoC6AzKPJZAb164yKzXO0TRWMLLXlHoE6bC8v96XzfKbjbN"
+WHATSAPP_TOKEN = "EAAKqZBJod3WQBQrZCzaPIdrZCHZB9Y7T7zazMZBEgV89dYcEhM4lBDKEculTZCT2XNtcqK3ZC6qklYRPVoigsVVdH6yB5UkBoZCLZAQlbmr0hfFu2XGkS6IsTVeo7K5qZCxwZBh8CU71313zAU5QrIlxCz2RLtx94ZA1fFsESUJPyiaDRtR3PTM5HZBPGudEPsH3GYEtIbwUexZCqMS6Aa6KTGQmYDWpry8CYus3kjX8wzlYkzQflN6FtwQKoYEZAQvwT5fQ3sGNbbqwZBguZCaZCvtU0dQZChlscV0"
 PHONE_NUMBER_ID = "1020609241124975"
 
 BUSINESS_PHONE = "+573216642926"
@@ -95,6 +95,34 @@ def resumen_para_negocio(user):
 
     texto += f"\n\n💰 TOTAL: ${int(total)}"
     return texto
+    
+def extraer_cantidad(text):
+    text = text.lower()
+
+    # palabras → números
+    palabras = {
+        "media": 0.5,
+        "media libra": 0.5,
+        "una": 1,
+        "un": 1,
+        "uno": 1,
+        "dos": 2,
+        "tres": 3,
+        "cuatro": 4,
+        "cinco": 5
+    }
+
+    for k, v in palabras.items():
+        if k in text:
+            return v, None
+
+    # números (1, 2, 3, 1.5)
+    m = re.search(r"(\d+(?:[.,]\d+)?)", text)
+    if m:
+        return float(m.group(1).replace(",", ".")), None
+
+    # si no dice cantidad → 1 por defecto
+    return 1, None
 
 # =========================
 # 🧠 LÓGICA DEL BOT
