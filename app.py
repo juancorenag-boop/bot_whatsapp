@@ -102,7 +102,7 @@ def process_message(text, user):
     text_lower = text.lower().strip()  # ➕ ya normaliza mayúsculas
 
     if not text_lower:
-    return saludo()
+        return saludo()
 
     if text_lower in ["hola", "buenas", "menu", "inicio"]:
         return saludo()
