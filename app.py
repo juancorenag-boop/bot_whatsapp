@@ -29,6 +29,7 @@ awaiting_address = set()
 awaiting_payment = set()
 awaiting_change = set()
 awaiting_comments = set()
+awaiting_change_amount = set()
 order_comments = {}
 
 # ➕ NUEVO: palabras para quitar productos
@@ -104,38 +105,37 @@ def process_message(text, user):
     if not text_lower:
         return saludo()
 
-    if text_lower in ["hola", "buenas", "menu", "inicio"]:
+        if text_lower in ["hola", "buenas", "menu", "inicio"]:
         return saludo()
 
-        # ➕ NUEVO: quitar productos
     # ➕ QUITAR PRODUCTOS (cantidad parcial)
-if any(p in text_lower for p in QUITAR_PALABRAS):
-    pedido = orders.get(user, [])
-    if not pedido:
-        return "🛒 Tu pedido está vacío."
+    if any(p in text_lower for p in QUITAR_PALABRAS):
+        pedido = orders.get(user, [])
+        if not pedido:
+            return "🛒 Tu pedido está vacío."
 
-    cant_quitar, _ = extraer_cantidad(text_lower)
+        cant_quitar, _ = extraer_cantidad(text_lower)
 
-    for p in pedido:
-        if p["tipo"].lower() in text_lower:
+        for p in pedido:
+            if p["tipo"].lower() in text_lower:
 
-            p["cantidad"] -= cant_quitar
+                p["cantidad"] -= cant_quitar
 
-            if p["cantidad"] <= 0:
-                pedido.remove(p)
-                msg = f"🗑️ Quité completamente *{p['tipo']}* del pedido."
-            else:
-                p["subtotal"] = p["cantidad"] * p.get("precio", 0)
-                msg = f"➖ Quité *{cant_quitar}* de *{p['tipo']}*."
+                if p["cantidad"] <= 0:
+                    pedido.remove(p)
+                    msg = f"🗑️ Quité completamente *{p['tipo']}* del pedido."
+                else:
+                    p["subtotal"] = p["cantidad"] * p.get("precio", 0)
+                    msg = f"➖ Quité *{cant_quitar}* de *{p['tipo']}*."
 
-            # 📦 AVISAR AL NEGOCIO
-            resumen_negocio = resumen_para_negocio(user)
-            if resumen_negocio:
-                send_order_to_business(BUSINESS_PHONE, resumen_negocio)
+                # 📦 AVISAR AL NEGOCIO
+                resumen_negocio = resumen_para_negocio(user)
+                if resumen_negocio:
+                    send_order_to_business(BUSINESS_PHONE, resumen_negocio)
 
-            return msg + "\n\n" + resumen_pedido(user)
+                return msg + "\n\n" + resumen_pedido(user)
 
-    return "❌ Ese producto no está en tu pedido."
+        return "❌ Ese producto no está en tu pedido."
 
     if user in awaiting_comments:
         order_comments[user] = text
