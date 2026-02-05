@@ -108,41 +108,34 @@ def process_message(text, user):
         return saludo()
 
         # ➕ NUEVO: quitar productos
-    if any(p in text_lower for p in QUITAR_PALABRAS):
-        pedido = orders.get(user, [])
-        if not pedido:
-            return "🛒 Tu pedido está vacío."
+    # ➕ QUITAR PRODUCTOS (cantidad parcial)
+if any(p in text_lower for p in QUITAR_PALABRAS):
+    pedido = orders.get(user, [])
+    if not pedido:
+        return "🛒 Tu pedido está vacío."
 
-        cant_quitar, unidad_quitar = extraer_cantidad(text_lower)
+    cant_quitar, _ = extraer_cantidad(text_lower)
 
-        for p in pedido:
-            if p["tipo"].lower() in text_lower:
+    for p in pedido:
+        if p["tipo"].lower() in text_lower:
 
-                # validar unidad
-                unidad_producto = p.get("unidad", "unidad")
-                if unidad_producto != unidad_quitar:
-                    return f"⚠️ *{p['tipo']}* se maneja en {unidad_producto}."
+            p["cantidad"] -= cant_quitar
 
-                p["cantidad"] -= cant_quitar
+            if p["cantidad"] <= 0:
+                pedido.remove(p)
+                msg = f"🗑️ Quité completamente *{p['tipo']}* del pedido."
+            else:
+                p["subtotal"] = p["cantidad"] * p.get("precio", 0)
+                msg = f"➖ Quité *{cant_quitar}* de *{p['tipo']}*."
 
-                if p["cantidad"] <= 0:
-                    pedido.remove(p)
-                    msg = f"🗑️ Quité completamente *{p['tipo']}* del pedido."
-                else:
-                    p["subtotal"] = p["cantidad"] * p.get("precio", 0)
-                    msg = f"➖ Quité *{cant_quitar} {unidad_producto}* de *{p['tipo']}*."
+            # 📦 AVISAR AL NEGOCIO
+            resumen_negocio = resumen_para_negocio(user)
+            if resumen_negocio:
+                send_order_to_business(BUSINESS_PHONE, resumen_negocio)
 
-                # 🔄 mostrar resumen actualizado
-                resumen = resumen_pedido(user)
+            return msg + "\n\n" + resumen_pedido(user)
 
-                # 📦 avisar al negocio
-                resumen_negocio = resumen_para_negocio(user)
-                if resumen_negocio:
-                    send_order_to_business(BUSINESS_PHONE, resumen_negocio)
-
-                return msg + "\n\n" + resumen
-
-        return "❌ Ese producto no está en tu pedido."
+    return "❌ Ese producto no está en tu pedido."
 
     if user in awaiting_comments:
         order_comments[user] = text
@@ -157,6 +150,12 @@ def process_message(text, user):
 
     if user in awaiting_change:
         awaiting_change.discard(user)
+        awaiting_change_amount.add(user)
+        return "💵 ¿Para cuánto es el billete? (ej: 20000, 50000)"
+
+    if user in awaiting_change_amount:
+        awaiting_change_amount.discard(user)
+        order_comments[user] = f"Cambio para ${text}"
         awaiting_comments.add(user)
         return "📝 ¿Deseas agregar algún comentario a tu pedido?"
 
