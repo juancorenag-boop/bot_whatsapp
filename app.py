@@ -105,7 +105,7 @@ def process_message(text, user):
     if not text_lower:
         return saludo()
 
-        if text_lower in ["hola", "buenas", "menu", "inicio"]:
+    if text_lower in ["hola", "buenas", "menu", "inicio"]:
         return saludo()
 
     # ➕ QUITAR PRODUCTOS (cantidad parcial)
