@@ -109,25 +109,25 @@ def process_message(text, user):
 
     # ➕ NUEVO: quitar productos
 if any(p in text_lower for p in QUITAR_PALABRAS):
-        pedido = orders.get(user, [])
-        cant_quitar, unidad_quitar = extraer_cantidad(text_lower)
-    
-        for p in pedido:
-            if p["tipo"].lower() in text_lower:
-            
+    pedido = orders.get(user, [])
+    cant_quitar, unidad_quitar = extraer_cantidad(text_lower)
+
+    for p in pedido:
+        if p["tipo"].lower() in text_lower:
+
             # validar unidad compatible
-                if p["unidad"] != unidad_quitar:
-                    return f"⚠️ La *{p['tipo']}* se maneja en {p['unidad']}."
+            if p["unidad"] != unidad_quitar:
+                return f"⚠️ La *{p['tipo']}* se maneja en {p['unidad']}."
 
-                p["cantidad"] -= cant_quitar
+            p["cantidad"] -= cant_quitar
 
-                if p["cantidad"] <= 0:
-                    pedido.remove(p)
-                    return f"🗑️ Quité completamente *{p['tipo']}* del pedido."
+            if p["cantidad"] <= 0:
+                pedido.remove(p)
+                return f"🗑️ Quité completamente *{p['tipo']}* del pedido."
 
-                return f"➖ Quité *{cant_quitar} {p['unidad']}* de *{p['tipo']}*."
+            return f"➖ Quité *{cant_quitar} {p['unidad']}* de *{p['tipo']}*."
 
-         return "❌ Ese producto no está en tu pedido."
+    return "❌ Ese producto no está en tu pedido."
 
     if user in awaiting_comments:
         order_comments[user] = text
