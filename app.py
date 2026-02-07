@@ -12,7 +12,7 @@ app.secret_key = "chat-dev-secret"
 # 🔐 WHATSAPP CLOUD API
 # =========================
 VERIFY_TOKEN = "julia0111"
-WHATSAPP_TOKEN = "EAAKqZBJod3WQBQgoarPZCKe45bPv3QJE8uytcgvIc2MtarhsES3OF2WzqwzUQKWZCoqGb8s0BnGMLsYw6gAwXBCy77wZCVjqmE1YRzKQqVA0p5QMZCHvBsSZC1ykWOKTdkhdBOHW4hTOq8GAZBsZAwKGdHMpP3p7jdQlhs0VN3IpaZAQQrSZAZCThqReng1AU90dsXk1eZBhYh2aZBnycQ8UjfZAMC8rkzDPwsa0pVCDwPBpcmKs417jVHKLtrZBVqZBOmC2ZAGCQrHqbPYeaMC9yNerWM3kULIeU"
+WHATSAPP_TOKEN = "EAAKqZBJod3WQBQiYuhw1PqGMdRoZAImPE6Pj7TMGoPz3NXfA6C0yCAFZB4FT2gwgphohAnS0rp4NBUnkfqfiVUG5PF4THFTGqSgM1y7XQ8FtwaUByN61hPksphMEjXPpI1zK9UYaZBwsBOUCk9WPCgvXAZAGcb7KZAR2vFZAf8sUq6K31rsPzNiuB0Orxr6bxQJJBDsj8qgfHVgSqwf96HkG8DbFqwI1bfRwSB820XAT2ZAFiw7YfIX5pQtTjt4RKhHikojZAMtC7h5SjTHFYCp3Arczu"
 PHONE_NUMBER_ID = "1020609241124975"
 
 # =========================
@@ -169,7 +169,7 @@ def process_message(text, user):
         awaiting_comments.add(user)
         return "📝 ¿Deseas agregar un comentario?"
 
-    # 🔍 BUSCAR / SELECCIONAR
+    # 🔍 BUSCAR / SELECCIONAR POR NÚMERO
     if text.isdigit() and user in last_results:
         idx = int(text) - 1
         if 0 <= idx < len(last_results[user]):
@@ -178,16 +178,16 @@ def process_message(text, user):
 
     # 🔍 BUSCAR SOLO PARA TIENDAS
     if negocio["type"] == "store":
-    resultados = [i for i in items if text_lower in i["tipo"]]
+        resultados = [i for i in items if text_lower in i["tipo"]]
 
-    if resultados:
-        last_results[user] = resultados
-        return lista_productos(resultados)
+        if resultados:
+            last_results[user] = resultados
+            return lista_productos(resultados)
 
-    return "❌ No encontramos ese producto"
+        return "❌ No encontramos ese producto"
 
-# 🍽️ RESTAURANTE: NO BUSCA TEXTO
-return "❌ Responde con el número del plato"
+    # 🍽️ RESTAURANTE: NO BUSCA TEXTO
+    return "❌ Responde con el número del plato"
 
 # =========================
 # 📋 RESUMEN USUARIO
@@ -243,4 +243,3 @@ def enviar_whatsapp(to, text):
 
 if __name__ == "__main__":
     app.run(port=5000)
-
