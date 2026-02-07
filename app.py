@@ -12,7 +12,7 @@ app.secret_key = "chat-dev-secret"
 # 🔐 WHATSAPP CLOUD API
 # =========================
 VERIFY_TOKEN = "julia0111"
-WHATSAPP_TOKEN = "EAAKqZBJod3WQBQpqW3B7VGp3CqHsdZARQGP9A0p4HfS89Y9ZCRTnazIdF2ozb1FznEAgouv4dXNlfcZAXMqlJ54BUxkZCbiAn39nteVYCerOv0MTZBrkpG0zTPSsu1ZC9HnbBAByMt9PiByAmIVMxQIeH33taeO07ZAyZChG0KYNIIZA9PCOcTNT7GkptQXUKVBvEILQRWct7AJCV3RQMmIcDdI3OW0878ZAFJBLZClUyBToh14VsC2GK4T1Fgd8wJ21ZBC437IIe9hgWcR3uRVapRi0GC6U1"
+WHATSAPP_TOKEN = "EAAKqZBJod3WQBQgoarPZCKe45bPv3QJE8uytcgvIc2MtarhsES3OF2WzqwzUQKWZCoqGb8s0BnGMLsYw6gAwXBCy77wZCVjqmE1YRzKQqVA0p5QMZCHvBsSZC1ykWOKTdkhdBOHW4hTOq8GAZBsZAwKGdHMpP3p7jdQlhs0VN3IpaZAQQrSZAZCThqReng1AU90dsXk1eZBhYh2aZBnycQ8UjfZAMC8rkzDPwsa0pVCDwPBpcmKs417jVHKLtrZBVqZBOmC2ZAGCQrHqbPYeaMC9yNerWM3kULIeU"
 PHONE_NUMBER_ID = "1020609241124975"
 
 # =========================
@@ -23,8 +23,17 @@ last_results = {}
 pending_product = {}
 awaiting_confirmation = set()
 awaiting_comments = set()
+
+# 👉 NUEVAS MEMORIAS
+awaiting_address = set()
+awaiting_payment = set()
+awaiting_change = set()
+
 order_comments = {}
 user_business = {}
+addresses = {}
+payment_method = {}
+payment_change = {}
 
 QUITAR_PALABRAS = ["quitar", "eliminar", "borra", "sacar"]
 
@@ -56,6 +65,15 @@ def resumen_para_negocio(user):
         texto += f"- {p['cantidad']} {p['tipo']} = ${int(p['subtotal'])}\n"
         total += p["subtotal"]
 
+    if user in addresses:
+        texto += f"\n📍 Dirección: {addresses[user]}"
+
+    if user in payment_method:
+        texto += f"\n💳 Pago: {payment_method[user]}"
+
+    if user in payment_change:
+        texto += f"\n💵 Vuelto para: {payment_change[user]}"
+
     if user in order_comments:
         texto += f"\n📝 {order_comments[user]}"
 
@@ -85,7 +103,9 @@ def process_message(text, user):
     text = text.strip()
     text_lower = text.lower()
 
-    # 1️⃣ SELECCIÓN DE NEGOCIO
+    # =====================
+    # SELECCIÓN NEGOCIO
+    # =====================
     if user not in user_business:
         if text.isdigit() and text in BUSINESSES:
             user_business[user] = text
@@ -115,7 +135,9 @@ def process_message(text, user):
     negocio = BUSINESSES[user_business[user]]
     items = negocio["inventory"] if negocio["type"] == "store" else negocio["menu"]
 
-    # ➖ QUITAR PRODUCTOS
+    # =====================
+    # QUITAR PRODUCTOS
+    # =====================
     if any(p in text_lower for p in QUITAR_PALABRAS):
         pedido = orders.get(user, [])
         cant = extraer_cantidad(text_lower)
@@ -128,15 +150,45 @@ def process_message(text, user):
                 else:
                     p["subtotal"] = p["cantidad"] * p["precio"]
 
-                resumen = resumen_para_negocio(user)
-                if resumen:
-                    send_order_to_business(negocio["phone"], resumen)
-
                 return resumen_pedido(user)
 
         return "❌ Ese producto no está en tu pedido"
 
-    # 📝 COMENTARIOS
+    # =====================
+    # DIRECCIÓN
+    # =====================
+    if user in awaiting_address:
+        addresses[user] = text
+        awaiting_address.discard(user)
+        awaiting_payment.add(user)
+        return "💳 ¿Cómo deseas pagar?\n- efectivo\n- transferencia"
+
+    # =====================
+    # MÉTODO DE PAGO
+    # =====================
+    if user in awaiting_payment:
+        payment_method[user] = text_lower
+        awaiting_payment.discard(user)
+
+        if text_lower == "efectivo":
+            awaiting_change.add(user)
+            return "💵 ¿Necesitas vuelto? ¿Para cuánto el billete?"
+
+        awaiting_comments.add(user)
+        return "📝 ¿Deseas agregar un comentario?"
+
+    # =====================
+    # VUELTO
+    # =====================
+    if user in awaiting_change:
+        payment_change[user] = text
+        awaiting_change.discard(user)
+        awaiting_comments.add(user)
+        return "📝 ¿Deseas agregar un comentario?"
+
+    # =====================
+    # COMENTARIOS
+    # =====================
     if user in awaiting_comments:
         order_comments[user] = text
         awaiting_comments.discard(user)
@@ -144,15 +196,18 @@ def process_message(text, user):
         resumen = resumen_para_negocio(user)
         send_order_to_business(negocio["phone"], resumen)
 
-        # ✅ LIMPIEZA COMPLETA DE ESTADO (CORRECCIÓN)
+        # limpiar memoria
         orders.pop(user, None)
         user_business.pop(user, None)
-        last_results.pop(user, None)
-        pending_product.pop(user, None)
+        addresses.pop(user, None)
+        payment_method.pop(user, None)
+        payment_change.pop(user, None)
 
         return "✅ Pedido enviado al negocio 🙌"
 
-    # 📦 AGREGAR PRODUCTO
+    # =====================
+    # AGREGAR PRODUCTO
+    # =====================
     if user in pending_product:
         producto = pending_product[user]
         cantidad = extraer_cantidad(text)
@@ -163,35 +218,40 @@ def process_message(text, user):
         orders.setdefault(user, []).append(producto)
         pending_product.pop(user)
 
-        return "✅ Producto agregado\n👉 Otro producto o *ok*"
+        return "✅ Producto agregado\n👉 Otro producto o ok"
 
     if text_lower == "ok":
         return resumen_pedido(user)
 
     if text_lower == "confirmar":
-        awaiting_comments.add(user)
-        return "📝 ¿Deseas agregar un comentario?"
+        awaiting_address.add(user)
+        return "📍 ¿Cuál es la dirección de entrega?"
 
-    # 🔍 BUSCAR / SELECCIONAR
+    # =====================
+    # SELECCIONAR POR NÚMERO
+    # =====================
     if text.isdigit() and user in last_results:
         idx = int(text) - 1
         if 0 <= idx < len(last_results[user]):
             pending_product[user] = last_results[user][idx].copy()
             return "¿Cuántas unidades deseas?"
 
-    # 🔍 BUSCAR SOLO PARA TIENDAS
+    # =====================
+    # BÚSQUEDA SOLO TIENDAS
+    # =====================
     if negocio["type"] == "store":
         resultados = [i for i in items if text_lower in i["tipo"]]
+
         if resultados:
             last_results[user] = resultados
             return lista_productos(resultados)
+
         return "❌ No encontramos ese producto"
 
-    # 🍽️ RESTAURANTE: SOLO NÚMERO
     return "❌ Responde con el número del plato"
 
 # =========================
-# 📋 RESUMEN USUARIO
+# RESUMEN USUARIO
 # =========================
 def resumen_pedido(user):
     pedido = orders.get(user, [])
@@ -209,7 +269,7 @@ def resumen_pedido(user):
     return texto
 
 # =========================
-# 🌐 WEBHOOK
+# WEBHOOK
 # =========================
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
@@ -244,5 +304,3 @@ def enviar_whatsapp(to, text):
 
 if __name__ == "__main__":
     app.run(port=5000)
-
-
