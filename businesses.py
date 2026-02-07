@@ -4,7 +4,13 @@ BUSINESSES = {
         "name": "Tienda La Esquina",
         "type": "store",
         "phone": "573216642926",
-
+        "payment_info": (
+            "🏦 *Pago Tienda La Esquina*\n"
+            "Banco: Bancolombia\n"
+            "Cuenta: 111222333\n"
+            "Tipo: Ahorros\n"
+            "Nombre: Tienda La Esquina"
+        ),
         "inventory": [
             # ===== ABARROTES =====
             {"tipo": "arroz", "marca": "roa", "precio": 4500, "stock": 10},
@@ -28,7 +34,12 @@ BUSINESSES = {
         "name": "Restaurante Donde Kati",
         "type": "restaurant",
         "phone": "573104567890",
-
+        "payment_info": (
+            "🏦 *Pago Restaurante Donde Kati*\n"
+            "Banco: Nequi\n"
+            "Número: 3104567890\n"
+            "Nombre: Donde Kati"
+        ),
         "menu": [
             {"tipo": "carne asada", "precio": 20000},
             {"tipo":"cerdo asado", "precio":18000},
