@@ -31,7 +31,7 @@ BUSINESSES = {
 
         "menu": [
             {"tipo": "carne asada", "precio": 20000},
-            {"tipo":"cerdo asado", "precio":18000}
+            {"tipo":"cerdo asado", "precio":18000},
             {"tipo": "gaseosa", "precio": 5000},
         ]
     }
