@@ -12,7 +12,7 @@ app.secret_key = "chat-dev-secret"
 # 🔐 WHATSAPP CLOUD API
 # =========================
 VERIFY_TOKEN = "julia0111"
-WHATSAPP_TOKEN = "EAAKqZBJod3WQBQgoarPZCKe45bPv3QJE8uytcgvIc2MtarhsES3OF2WzqwzUQKWZCoqGb8s0BnGMLsYw6gAwXBCy77wZCVjqmE1YRzKQqVA0p5QMZCHvBsSZC1ykWOKTdkhdBOHW4hTOq8GAZBsZAwKGdHMpP3p7jdQlhs0VN3IpaZAQQrSZAZCThqReng1AU90dsXk1eZBhYh2aZBnycQ8UjfZAMC8rkzDPwsa0pVCDwPBpcmKs417jVHKLtrZBVqZBOmC2ZAGCQrHqbPYeaMC9yNerWM3kULIeU"
+WHATSAPP_TOKEN = "EAAKqZBJod3WQBQt5Me1kDmRV9SLaFpZCo5v35sphabd0wb0guNeZBl2mCZAzPeqJ5AKQEMxQYW5vzZAX86DP4RenQT5u39uF1bR22NOXYYb3cOct32HeMdpEIICJgP7y1F9uKZAdSGkDpZB3zTSbr4dimkoOXOxKSScVSpvyZCSl5rZB4YW3a9wMZAr0SZCyPT19RvMRYV1WZCqvFO4XZApxb0ag3CDoUcZB2ZARorvpx7awd81LZCPIUitzS1yt7bTjMdrGScTAtz9LdTsVYcE1i1qaBy2ZCxlYx"
 PHONE_NUMBER_ID = "1020609241124975"
 
 # =========================
@@ -22,14 +22,10 @@ orders = {}
 last_results = {}
 pending_product = {}
 awaiting_confirmation = set()
-awaiting_address = set()
-awaiting_payment = set()
-awaiting_change = set()
 awaiting_comments = set()
-awaiting_change_amount = set()
 order_comments = {}
 
-user_business = {}  # 👈 negocio elegido por usuario
+user_business = {}  # negocio elegido
 
 QUITAR_PALABRAS = ["quitar", "eliminar", "borra", "sacar"]
 
@@ -58,9 +54,8 @@ def resumen_para_negocio(user):
     total = 0
 
     for p in pedido:
-        subtotal = p["subtotal"]
-        texto += f"- {p['cantidad']} {p['tipo']} = ${int(subtotal)}\n"
-        total += subtotal
+        texto += f"- {p['cantidad']} {p['tipo']} = ${int(p['subtotal'])}\n"
+        total += p["subtotal"]
 
     if user in order_comments:
         texto += f"\n📝 {order_comments[user]}"
@@ -91,25 +86,22 @@ def process_message(text, user):
     text = text.strip()
     text_lower = text.lower()
 
-    # 1️⃣ SELECCIÓN DE NEGOCIO
+    # 1️⃣ SELECCIÓN DE NEGOCIO (CORREGIDO)
     if user not in user_business:
+        if text.isdigit() and text in BUSINESSES:
+            user_business[user] = text
+            return f"✅ *{BUSINESSES[text]['name']}*\n\nEscribe lo que deseas pedir"
+
         opciones = "🏪 *Elige un negocio:*\n\n"
         for k, b in BUSINESSES.items():
             opciones += f"{k}. {b['name']}\n"
         opciones += "\nResponde con el número"
         return opciones
 
-    # guardar negocio
-    if user not in user_business and text.isdigit():
-        if text in BUSINESSES:
-            user_business[user] = text
-            return f"✅ *{BUSINESSES[text]['name']}*\n\nEscribe lo que deseas pedir"
-        return "❌ Opción inválida"
-
     negocio = BUSINESSES[user_business[user]]
-    tipo = negocio["type"]
+    items = negocio["inventory"] if negocio["type"] == "store" else negocio["menu"]
 
-    # ➖ QUITAR
+    # ➖ QUITAR PRODUCTOS
     if any(p in text_lower for p in QUITAR_PALABRAS):
         pedido = orders.get(user, [])
         cant = extraer_cantidad(text_lower)
@@ -123,8 +115,12 @@ def process_message(text, user):
                     p["subtotal"] = p["cantidad"] * p["precio"]
 
                 resumen = resumen_para_negocio(user)
-                send_order_to_business(negocio["phone"], resumen)
+                if resumen:
+                    send_order_to_business(negocio["phone"], resumen)
+
                 return resumen_pedido(user)
+
+        return "❌ Ese producto no está en tu pedido"
 
     # 📝 COMENTARIOS
     if user in awaiting_comments:
@@ -152,19 +148,14 @@ def process_message(text, user):
 
         return "✅ Producto agregado\n👉 Otro producto o *ok*"
 
-    # OK
     if text_lower == "ok":
-        awaiting_confirmation.add(user)
         return resumen_pedido(user)
 
-    # CONFIRMAR
     if text_lower == "confirmar":
         awaiting_comments.add(user)
         return "📝 ¿Deseas agregar un comentario?"
 
     # 🔍 BUSCAR
-    items = negocio["inventory"] if tipo == "store" else negocio["menu"]
-
     resultados = [i for i in items if text_lower in i["tipo"]]
 
     if resultados:
@@ -233,3 +224,4 @@ def enviar_whatsapp(to, text):
 
 if __name__ == "__main__":
     app.run(port=5000)
+
