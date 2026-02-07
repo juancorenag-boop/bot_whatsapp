@@ -95,11 +95,9 @@ def resumen_para_negocio(user):
 
     texto += f"\n\n💰 TOTAL: ${int(total)}"
     return texto
-    
+
 def extraer_cantidad(text):
     text = text.lower()
-
-    # palabras → números
     palabras = {
         "media": 0.5,
         "media libra": 0.5,
@@ -116,12 +114,10 @@ def extraer_cantidad(text):
         if k in text:
             return v, None
 
-    # números (1, 2, 3, 1.5)
     m = re.search(r"(\d+(?:[.,]\d+)?)", text)
     if m:
         return float(m.group(1).replace(",", ".")), None
 
-    # si no dice cantidad → 1 por defecto
     return 1, None
 
 # =========================
@@ -130,13 +126,10 @@ def extraer_cantidad(text):
 def process_message(text, user):
     text_lower = text.lower().strip()
 
-    if not text_lower:
+    if not text_lower or text_lower in ["hola", "buenas", "menu", "inicio"]:
         return saludo()
 
-    if text_lower in ["hola", "buenas", "menu", "inicio"]:
-        return saludo()
-
-    # ➕ QUITAR PRODUCTOS (cantidad parcial)
+    # ➖ QUITAR PRODUCTOS
     if any(p in text_lower for p in QUITAR_PALABRAS):
         pedido = orders.get(user, [])
         if not pedido:
@@ -146,7 +139,6 @@ def process_message(text, user):
 
         for p in pedido:
             if p["tipo"].lower() in text_lower:
-
                 p["cantidad"] -= cant_quitar
 
                 if p["cantidad"] <= 0:
@@ -156,15 +148,15 @@ def process_message(text, user):
                     p["subtotal"] = p["cantidad"] * p.get("precio", 0)
                     msg = f"➖ Quité *{cant_quitar}* de *{p['tipo']}*."
 
-                # 📦 AVISAR AL NEGOCIO
-                resumen_negocio = resumen_para_negocio(user)
-                if resumen_negocio:
-                    send_order_to_business(BUSINESS_PHONE, resumen_negocio)
+                resumen = resumen_para_negocio(user)
+                if resumen:
+                    send_order_to_business(BUSINESS_PHONE, resumen)
 
                 return msg + "\n\n" + resumen_pedido(user)
 
         return "❌ Ese producto no está en tu pedido."
 
+    # 📝 COMENTARIOS → PEDIDO FINAL
     if user in awaiting_comments:
         order_comments[user] = text
         awaiting_comments.discard(user)
@@ -214,9 +206,8 @@ def process_message(text, user):
 
     if user in pending_product:
         producto = pending_product[user]
-
-        # ➕ NUEVO: detectar cantidades en libras
         cantidad = None
+
         for k, v in CANTIDADES_LB.items():
             if k in text_lower:
                 cantidad = v
@@ -317,3 +308,4 @@ def enviar_whatsapp(to, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
