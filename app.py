@@ -176,6 +176,8 @@ def process_message(text, user):
             pending_product[user] = last_results[user][idx].copy()
             return "¿Cuántas unidades deseas?"
 
+    # 🔍 BUSCAR SOLO PARA TIENDAS
+    if negocio["type"] == "store":
     resultados = [i for i in items if text_lower in i["tipo"]]
 
     if resultados:
@@ -183,6 +185,9 @@ def process_message(text, user):
         return lista_productos(resultados)
 
     return "❌ No encontramos ese producto"
+
+# 🍽️ RESTAURANTE: NO BUSCA TEXTO
+return "❌ Responde con el número del plato"
 
 # =========================
 # 📋 RESUMEN USUARIO
