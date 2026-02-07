@@ -1,9 +1,8 @@
-from flask import Flask, request, render_template_string, session
+from flask import Flask, request
 import re
 import requests
 
-from inventory import INVENTARIO
-from search import buscar
+from businesses import BUSINESSES
 from responses import saludo, lista_productos
 
 app = Flask(__name__)
@@ -13,13 +12,11 @@ app.secret_key = "chat-dev-secret"
 # 🔐 WHATSAPP CLOUD API
 # =========================
 VERIFY_TOKEN = "julia0111"
-WHATSAPP_TOKEN = "EAAKqZBJod3WQBQltZANeJKNH6HHUA4ZCENq2nPJ30aClT7ZCu6W2eqBSnLvau2btce9NdMMI9gCefbLPVIAixchdluMH2J95RykUgtTXVZAP9QxaWZBYZA2IVYpqZCR0RAhHsEG39HZCzDrXSln4Tg3m4ml6cYuSRZBf30SsgoERmfRkQvLjmxRxv1Jszr1DyynZB0AdQnFNwQg5dZA7trZBVlWqmqzlBrpZCuZAiCSakXjNS1BuIw5XTzuqyoUKiVWjnopE69fxjrM69taYd4bsn2LQrZBR8pZBu"
+WHATSAPP_TOKEN = "EAAKqZBJod3WQBQgoarPZCKe45bPv3QJE8uytcgvIc2MtarhsES3OF2WzqwzUQKWZCoqGb8s0BnGMLsYw6gAwXBCy77wZCVjqmE1YRzKQqVA0p5QMZCHvBsSZC1ykWOKTdkhdBOHW4hTOq8GAZBsZAwKGdHMpP3p7jdQlhs0VN3IpaZAQQrSZAZCThqReng1AU90dsXk1eZBhYh2aZBnycQ8UjfZAMC8rkzDPwsa0pVCDwPBpcmKs417jVHKLtrZBVqZBOmC2ZAGCQrHqbPYeaMC9yNerWM3kULIeU"
 PHONE_NUMBER_ID = "1020609241124975"
 
-BUSINESS_PHONE = "+573216642926"
-
 # =========================
-# ===== MEMORIA =====
+# 🧠 MEMORIA
 # =========================
 orders = {}
 last_results = {}
@@ -32,265 +29,193 @@ awaiting_comments = set()
 awaiting_change_amount = set()
 order_comments = {}
 
-# ➕ NUEVO: palabras para quitar productos
+user_business = {}  # 👈 negocio elegido por usuario
+
 QUITAR_PALABRAS = ["quitar", "eliminar", "borra", "sacar"]
 
-# ➕ NUEVO: cantidades en libras
 CANTIDADES_LB = {
     "media libra": 0.5,
-    "media lb": 0.5,
     "una libra": 1,
-    "1 libra": 1,
-    "1 lb": 1,
     "libra y media": 1.5,
-    "1.5 lb": 1.5,
     "dos libras": 2,
-    "2 libras": 2,
-    "2 lb": 2
 }
 
-BANK_INFO = (
-    "🏦 *Datos para transferencia:*\n\n"
-    "Banco: Bancolombia\n"
-    "Cuenta: 123456789\n"
-    "Tipo: Ahorros\n"
-    "Nombre: Tienda XYZ\n\n"
-    "Cuando realices el pago envía el comprobante 📸"
-)
-
-PROMO_MSG = (
-    "\n\n📣 *¿Te gustaría este sistema para tu negocio?*\n"
-    "Ahorra tiempo y evita confusiones entre pedidos.\n"
-    "📞 Contáctanos: +57 3216642926"
-)
-
 # =========================
-# 📤 ENVÍO SIMULADO NEGOCIO
+# 📤 ENVÍO AL NEGOCIO
 # =========================
 def send_order_to_business(phone, resumen):
-    print("\n==============================")
-    print("📦 NUEVO PEDIDO PARA EL NEGOCIO")
-    print(f"📞 Enviar a: {phone}")
-    print(resumen)
-    print("==============================\n")
+    enviar_whatsapp(phone, resumen)
 
 # =========================
-# 📦 RESUMEN
+# 📦 RESUMEN NEGOCIO
 # =========================
 def resumen_para_negocio(user):
     pedido = orders.get(user, [])
     if not pedido:
         return None
 
-    texto = "🛒 NUEVO PEDIDO\n\n"
+    texto = "🛒 *NUEVO PEDIDO*\n\n"
     total = 0
 
     for p in pedido:
-        subtotal = p.get("subtotal", 0)
-        texto += f"- {p['cantidad']} {p['tipo'].title()} = ${int(subtotal)}\n"
+        subtotal = p["subtotal"]
+        texto += f"- {p['cantidad']} {p['tipo']} = ${int(subtotal)}\n"
         total += subtotal
 
     if user in order_comments:
-        texto += f"\n📝 Comentarios:\n{order_comments[user]}"
+        texto += f"\n📝 {order_comments[user]}"
 
     texto += f"\n\n💰 TOTAL: ${int(total)}"
     return texto
 
+# =========================
+# 🔢 CANTIDAD
+# =========================
 def extraer_cantidad(text):
     text = text.lower()
-    palabras = {
-        "media": 0.5,
-        "media libra": 0.5,
-        "una": 1,
-        "un": 1,
-        "uno": 1,
-        "dos": 2,
-        "tres": 3,
-        "cuatro": 4,
-        "cinco": 5
-    }
 
-    for k, v in palabras.items():
+    for k, v in CANTIDADES_LB.items():
         if k in text:
-            return v, None
+            return v
 
     m = re.search(r"(\d+(?:[.,]\d+)?)", text)
     if m:
-        return float(m.group(1).replace(",", ".")), None
+        return float(m.group(1).replace(",", "."))
 
-    return 1, None
+    return 1
 
 # =========================
-# 🧠 LÓGICA DEL BOT
+# 🧠 BOT
 # =========================
 def process_message(text, user):
-    text_lower = text.lower().strip()
+    text = text.strip()
+    text_lower = text.lower()
 
-    if not text_lower or text_lower in ["hola", "buenas", "menu", "inicio"]:
-        return saludo()
+    # 1️⃣ SELECCIÓN DE NEGOCIO
+    if user not in user_business:
+        opciones = "🏪 *Elige un negocio:*\n\n"
+        for k, b in BUSINESSES.items():
+            opciones += f"{k}. {b['name']}\n"
+        opciones += "\nResponde con el número"
+        return opciones
 
-    # ➖ QUITAR PRODUCTOS
+    # guardar negocio
+    if user not in user_business and text.isdigit():
+        if text in BUSINESSES:
+            user_business[user] = text
+            return f"✅ *{BUSINESSES[text]['name']}*\n\nEscribe lo que deseas pedir"
+        return "❌ Opción inválida"
+
+    negocio = BUSINESSES[user_business[user]]
+    tipo = negocio["type"]
+
+    # ➖ QUITAR
     if any(p in text_lower for p in QUITAR_PALABRAS):
         pedido = orders.get(user, [])
-        if not pedido:
-            return "🛒 Tu pedido está vacío."
-
-        cant_quitar, _ = extraer_cantidad(text_lower)
+        cant = extraer_cantidad(text_lower)
 
         for p in pedido:
-            if p["tipo"].lower() in text_lower:
-                p["cantidad"] -= cant_quitar
-
+            if p["tipo"] in text_lower:
+                p["cantidad"] -= cant
                 if p["cantidad"] <= 0:
                     pedido.remove(p)
-                    msg = f"🗑️ Quité completamente *{p['tipo']}* del pedido."
                 else:
-                    p["subtotal"] = p["cantidad"] * p.get("precio", 0)
-                    msg = f"➖ Quité *{cant_quitar}* de *{p['tipo']}*."
+                    p["subtotal"] = p["cantidad"] * p["precio"]
 
                 resumen = resumen_para_negocio(user)
-                if resumen:
-                    send_order_to_business(BUSINESS_PHONE, resumen)
+                send_order_to_business(negocio["phone"], resumen)
+                return resumen_pedido(user)
 
-                return msg + "\n\n" + resumen_pedido(user)
-
-        return "❌ Ese producto no está en tu pedido."
-
-    # 📝 COMENTARIOS → PEDIDO FINAL
+    # 📝 COMENTARIOS
     if user in awaiting_comments:
         order_comments[user] = text
         awaiting_comments.discard(user)
 
         resumen = resumen_para_negocio(user)
-        if resumen:
-            send_order_to_business(BUSINESS_PHONE, resumen)
+        send_order_to_business(negocio["phone"], resumen)
 
         orders.pop(user, None)
-        return "✅ Pedido registrado correctamente 🙌" + PROMO_MSG
+        user_business.pop(user, None)
 
-    if user in awaiting_change:
-        awaiting_change.discard(user)
-        awaiting_change_amount.add(user)
-        return "💵 ¿Para cuánto es el billete? (ej: 20000, 50000)"
+        return "✅ Pedido enviado al negocio 🙌"
 
-    if user in awaiting_change_amount:
-        awaiting_change_amount.discard(user)
-        order_comments[user] = f"Cambio para ${text}"
-        awaiting_comments.add(user)
-        return "📝 ¿Deseas agregar algún comentario a tu pedido?"
+    # 📦 AGREGAR PRODUCTO
+    if user in pending_product:
+        producto = pending_product[user]
+        cantidad = extraer_cantidad(text)
 
-    if user in awaiting_payment:
-        if text_lower in ["transferencia", "1"]:
-            awaiting_payment.discard(user)
-            awaiting_comments.add(user)
-            return BANK_INFO + "\n\n📝 ¿Deseas agregar algún comentario?"
-        if text_lower in ["efectivo", "2"]:
-            awaiting_payment.discard(user)
-            awaiting_change.add(user)
-            return "💵 ¿Necesitas cambio?"
-        return "❌ Opción inválida."
+        producto["cantidad"] = cantidad
+        producto["subtotal"] = cantidad * producto["precio"]
 
-    if user in awaiting_address:
-        awaiting_address.discard(user)
-        awaiting_payment.add(user)
-        return "💳 Método de pago:\n1️⃣ Transferencia\n2️⃣ Efectivo"
+        orders.setdefault(user, []).append(producto)
+        pending_product.pop(user)
 
-    if text_lower == "confirmar" and user in awaiting_confirmation:
-        awaiting_confirmation.discard(user)
-        awaiting_address.add(user)
-        return "📍 Escribe la dirección de entrega"
+        return "✅ Producto agregado\n👉 Otro producto o *ok*"
 
+    # OK
     if text_lower == "ok":
         awaiting_confirmation.add(user)
         return resumen_pedido(user)
 
-    if user in pending_product:
-        producto = pending_product[user]
-        cantidad = None
+    # CONFIRMAR
+    if text_lower == "confirmar":
+        awaiting_comments.add(user)
+        return "📝 ¿Deseas agregar un comentario?"
 
-        for k, v in CANTIDADES_LB.items():
-            if k in text_lower:
-                cantidad = v
-                break
+    # 🔍 BUSCAR
+    items = negocio["inventory"] if tipo == "store" else negocio["menu"]
 
-        if cantidad is not None:
-            producto["cantidad"] = cantidad
-        elif text.isdigit():
-            producto["cantidad"] = int(text)
-        else:
-            return "❌ Cantidad inválida."
+    resultados = [i for i in items if text_lower in i["tipo"]]
 
-        producto["subtotal"] = producto["cantidad"] * producto.get("precio", 0)
-        orders.setdefault(user, []).append(producto)
-        pending_product.pop(user)
-        return "✅ Producto agregado.\n👉 Otro producto o *ok*"
-
-    if text.isdigit() and user in last_results:
-        idx = int(text) - 1
-        productos = last_results[user]
-        if 0 <= idx < len(productos):
-            pending_product[user] = productos[idx].copy()
-            return "¿Cuántas unidades deseas?"
-
-    resultados = buscar(text_lower)
     if resultados:
         last_results[user] = resultados
         return lista_productos(resultados)
 
-    return "❌ No encontramos ese producto."
+    if text.isdigit() and user in last_results:
+        idx = int(text) - 1
+        prod = last_results[user][idx].copy()
+        pending_product[user] = prod
+        return "¿Cuántas unidades deseas?"
 
+    return "❌ No encontramos ese producto"
+
+# =========================
+# 📋 RESUMEN USUARIO
+# =========================
 def resumen_pedido(user):
     pedido = orders.get(user, [])
     if not pedido:
-        return "🛒 Tu pedido está vacío"
+        return "🛒 Pedido vacío"
 
-    resumen = "🧾 *Resumen de tu pedido:*\n\n"
     total = 0
+    texto = "🧾 *Tu pedido:*\n\n"
 
-    for i, p in enumerate(pedido, 1):
-        subtotal = p.get("subtotal", 0)
-        resumen += f"{i}. {p['cantidad']} {p['tipo'].title()} — ${int(subtotal)}\n"
-        total += subtotal
+    for p in pedido:
+        texto += f"- {p['cantidad']} {p['tipo']} = ${int(p['subtotal'])}\n"
+        total += p["subtotal"]
 
-    resumen += f"\n💰 Total: ${int(total)}\n\n👉 confirmar"
-    return resumen
-
-# =========================
-# 🌐 WEB CHAT
-# =========================
-@app.route("/", methods=["GET"])
-def home():
-    return "Bot activo 🚀"
-
-@app.route("/chat", methods=["POST"])
-def chat():
-    user = request.form.get("From", "web_user")
-    text = request.form.get("Body", "")
-    return process_message(text, user)
+    texto += f"\n💰 Total: ${int(total)}\n\n👉 confirmar"
+    return texto
 
 # =========================
-# 📲 WHATSAPP WEBHOOK
+# 🌐 WEBHOOK
 # =========================
 @app.route("/webhook", methods=["GET", "POST"])
-def whatsapp_webhook():
+def webhook():
     if request.method == "GET":
         if request.args.get("hub.verify_token") == VERIFY_TOKEN:
             return request.args.get("hub.challenge")
         return "Forbidden", 403
 
     data = request.json
-    try:
-        msg = data["entry"][0]["changes"][0]["value"]["messages"][0]
-        user = msg["from"]
-        text = msg.get("text", {}).get("body", "")
+    msg = data["entry"][0]["changes"][0]["value"]["messages"][0]
+    user = msg["from"]
+    text = msg.get("text", {}).get("body", "")
 
-        respuesta = process_message(text or "Hola", user)
-        enviar_whatsapp(user, respuesta)
+    respuesta = process_message(text, user)
+    enviar_whatsapp(user, respuesta)
 
-    except Exception as e:
-        print("ERROR:", e)
-
-    return "OK", 200
+    return "OK"
 
 def enviar_whatsapp(to, text):
     url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
@@ -307,5 +232,4 @@ def enviar_whatsapp(to, text):
     requests.post(url, headers=headers, json=payload)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
-
+    app.run(port=5000)
